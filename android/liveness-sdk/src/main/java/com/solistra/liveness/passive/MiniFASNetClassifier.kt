@@ -86,12 +86,13 @@ class MiniFASNetClassifier(
 
     /**
      * Runs passive anti-spoof inference on an 80x80 cropped bitmap.
+     * Expected input tensor format: [1, 3, 80, 80] NCHW, BGR, normalized x/255.0f.
      */
     @Synchronized
     fun classify(croppedFaceBitmap: Bitmap): AntiSpoofResult {
         val interp = interpreter ?: return AntiSpoofResult(false, 0f, 1f, 0f)
 
-        val inputBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * inputChannels * 4) // Float32
+        val inputBuffer = ByteBuffer.allocateDirect(1 * inputChannels * inputSize * inputSize * 4) // Float32: [1, 3, 80, 80]
         inputBuffer.order(ByteOrder.nativeOrder())
         inputBuffer.rewind()
 
@@ -103,55 +104,43 @@ class MiniFASNetClassifier(
         }
 
         resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
+        val numPixels = inputSize * inputSize
 
-        // Populate tensor in BGR format with mean subtraction
-        for (i in 0 until inputSize * inputSize) {
-            val pixel = intValues[i]
-            val r = (pixel shr 16 and 0xFF).toFloat()
-            val g = (pixel shr 8 and 0xFF).toFloat()
-            val b = (pixel and 0xFF).toFloat()
-
-            // MiniFASNet standard BGR order
-            inputBuffer.putFloat(b - meanB)
-            inputBuffer.putFloat(g - meanG)
-            inputBuffer.putFloat(r - meanR)
+        // Populate tensor in NCHW format [1, 3, 80, 80] with BGR channel order and x / 255.0f scaling
+        // Channel 0: Blue [80 x 80]
+        for (i in 0 until numPixels) {
+            val b = (intValues[i] and 0xFF).toFloat() / 255.0f
+            inputBuffer.putFloat(b)
         }
 
-        // Output tensor shape: [1, 3] -> [Spoof2D, Real, Spoof3D]
+        // Channel 1: Green [80 x 80]
+        for (i in 0 until numPixels) {
+            val g = ((intValues[i] shr 8) and 0xFF).toFloat() / 255.0f
+            inputBuffer.putFloat(g)
+        }
+
+        // Channel 2: Red [80 x 80]
+        for (i in 0 until numPixels) {
+            val r = ((intValues[i] shr 16) and 0xFF).toFloat() / 255.0f
+            inputBuffer.putFloat(r)
+        }
+
+        // Output tensor shape: [1, 3] -> [Spoof2D, Real/Live, Spoof3D] with Softmax already applied by model
         val outputBuffer = Array(1) { FloatArray(numClasses) }
 
         interp.run(inputBuffer, outputBuffer)
 
-        val logits = outputBuffer[0]
-        val probabilities = applySoftmax(logits)
+        val probabilities = outputBuffer[0]
         val spoof2d = probabilities[0]
         val realScore = probabilities[1]
         val spoof3d = probabilities[2]
 
         return AntiSpoofResult(
-            isReal = realScore > 0.5f && realScore > (spoof2d + spoof3d) * 0.5f,
+            isReal = realScore >= 0.60f && realScore > spoof2d && realScore > spoof3d,
             realConfidence = realScore,
             spoof2dConfidence = spoof2d,
             spoof3dConfidence = spoof3d
         )
-    }
-
-    private fun applySoftmax(logits: FloatArray): FloatArray {
-        var max = Float.NEGATIVE_INFINITY
-        for (v in logits) {
-            if (v > max) max = v
-        }
-        var sum = 0f
-        val exps = FloatArray(logits.size)
-        for (i in logits.indices) {
-            exps[i] = kotlin.math.exp(logits[i] - max)
-            sum += exps[i]
-        }
-        val probs = FloatArray(logits.size)
-        for (i in logits.indices) {
-            probs[i] = if (sum > 0f) exps[i] / sum else (1f / logits.size)
-        }
-        return probs
     }
 
     fun close() {

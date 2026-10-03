@@ -322,20 +322,14 @@ class LivenessEngine(
 
         passiveExecutor.submit {
             try {
-                // 1. Scale 2.7x (Skin / Face texture crop)
+                // Scale 2.7x: Canonical context crop matching 2.7_80x80_MiniFASNetV2 weights
                 val crop27 = MultiScaleCropper.cropFaceWithScale(frameCopy, faceBbox, scaleFactor = 2.7f, targetSize = 80)
-                val result27 = classifier.classify(crop27)
+                val result = classifier.classify(crop27)
 
-                // 2. Scale 4.0x (Screen bezel / Context crop)
-                val crop40 = MultiScaleCropper.cropFaceWithScale(frameCopy, faceBbox, scaleFactor = 4.0f, targetSize = 80)
-                val result40 = classifier.classify(crop40)
-
-                // Combined dual-scale score
-                val combinedRealScore = (result27.realConfidence + result40.realConfidence) / 2.0f
-                spoofScoreSmoother.addSample(combinedRealScore)
+                spoofScoreSmoother.addSample(result.realConfidence)
 
                 synchronized(stateLock) {
-                    if (abs(headPose.yaw) < 8f && abs(headPose.pitch) < 8f && combinedRealScore > 0.8f) {
+                    if (abs(headPose.yaw) < 8f && abs(headPose.pitch) < 8f && result.realConfidence > 0.7f) {
                         bestFaceBitmap = frameCopy.copy(Bitmap.Config.ARGB_8888, false)
                     }
                 }

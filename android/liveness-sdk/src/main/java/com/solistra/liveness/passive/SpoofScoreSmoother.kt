@@ -27,10 +27,11 @@ class SpoofScoreSmoother(
 
     @Synchronized
     fun isReliablyReal(): Boolean {
-        if (scores.size < windowSize / 2) return false
+        if (scores.isEmpty()) return false
         val avg = getAverageScore()
-        val hasCatastrophicDrop = scores.any { it < 0.20f }
-        return avg >= passThreshold && !hasCatastrophicDrop
+        val lowScoreCount = scores.count { it < 0.35f }
+        // Verified live if average confidence meets threshold and not dominated by spoof frames
+        return avg >= passThreshold && lowScoreCount <= (scores.size / 3)
     }
 
     @Synchronized

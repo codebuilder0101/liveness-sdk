@@ -230,7 +230,7 @@ class MainActivity : AppCompatActivity() {
                 binding.chipOpenMouth.isChecked = false
 
                 binding.sliderTimeout.value = 4.0f
-                binding.sliderSpoofThreshold.value = 85f
+                binding.sliderSpoofThreshold.value = 75f
                 binding.sliderSampleSize.value = 8f
                 binding.switchScreenSecurity.isChecked = true
                 binding.switchGpu.isChecked = true

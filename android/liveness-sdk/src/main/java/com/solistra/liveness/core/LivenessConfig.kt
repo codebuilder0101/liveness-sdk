@@ -29,7 +29,7 @@ data class LivenessConfig(
     /**
      * Required minimum confidence threshold for passive anti-spoofing (0.0 to 1.0).
      */
-    val passiveSpoofThreshold: Float = 0.85f,
+    val passiveSpoofThreshold: Float = 0.75f,
 
     /**
      * Number of sharp frames to accumulate for passive anti-spoofing averaging.
