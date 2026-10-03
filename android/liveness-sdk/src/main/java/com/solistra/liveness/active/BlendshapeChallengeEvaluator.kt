@@ -72,10 +72,15 @@ class BlendshapeChallengeEvaluator(
             val avgBlink = (blinkLeft + blinkRight) / 2.0f
             return Pair(false, (avgBlink / config.eyeBlinkThreshold) * 0.4f)
         } else {
-            // Anti-cheat: Eyes must reopen within valid physiological window (80ms - 1500ms)
             val closedDuration = timestampMs - eyeClosedTimeMs
-            if (isEyesOpen && closedDuration in 80..1500) {
-                return Pair(true, 1.0f)
+            if (isEyesOpen) {
+                if (closedDuration in 60..2000) {
+                    return Pair(true, 1.0f)
+                } else if (closedDuration > 2000) {
+                    // Reset state if eyes remained closed too long so user can naturally re-blink
+                    hasClosedEyes = false
+                    return Pair(false, 0f)
+                }
             }
             return Pair(false, 0.75f)
         }

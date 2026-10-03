@@ -37,6 +37,7 @@ class MediaPipeLandmarkerHelper(
     }
 
     private var faceLandmarker: FaceLandmarker? = null
+    private var lastTimestampMs: Long = -1L
 
     init {
         setupFaceLandmarker()
@@ -44,42 +45,63 @@ class MediaPipeLandmarkerHelper(
 
     private fun setupFaceLandmarker() {
         try {
-            val baseOptionsBuilder = BaseOptions.builder()
-                .setModelAssetPath(modelAssetName)
-
-            if (useGpu) {
-                baseOptionsBuilder.setDelegate(Delegate.GPU)
-            } else {
-                baseOptionsBuilder.setDelegate(Delegate.CPU)
-            }
-
-            val options = FaceLandmarker.FaceLandmarkerOptions.builder()
-                .setBaseOptions(baseOptionsBuilder.build())
-                .setRunningMode(RunningMode.LIVE_STREAM)
-                .setNumFaces(2) // Detect up to 2 faces to identify multi-face spoof attempts
-                .setOutputFaceBlendshapes(true)
-                .setOutputFacialTransformationMatrixes(true)
-                .setResultListener { result, mpImage ->
-                    processResult(result, mpImage)
-                }
-                .setErrorListener { error ->
-                    listener.onError(Exception(error.message))
-                }
-                .build()
-
-            faceLandmarker = FaceLandmarker.createFromOptions(context, options)
+            faceLandmarker = createLandmarker(gpuEnabled = useGpu)
         } catch (e: Exception) {
-            listener.onError(e)
+            if (useGpu) {
+                try {
+                    // Fallback to CPU delegate if GPU delegate fails on current hardware
+                    faceLandmarker = createLandmarker(gpuEnabled = false)
+                } catch (cpuError: Exception) {
+                    listener.onError(cpuError)
+                }
+            } else {
+                listener.onError(e)
+            }
         }
     }
 
+    private fun createLandmarker(gpuEnabled: Boolean): FaceLandmarker {
+        val baseOptionsBuilder = BaseOptions.builder()
+            .setModelAssetPath(modelAssetName)
+
+        if (gpuEnabled) {
+            baseOptionsBuilder.setDelegate(Delegate.GPU)
+        } else {
+            baseOptionsBuilder.setDelegate(Delegate.CPU)
+        }
+
+        val options = FaceLandmarker.FaceLandmarkerOptions.builder()
+            .setBaseOptions(baseOptionsBuilder.build())
+            .setRunningMode(RunningMode.LIVE_STREAM)
+            .setNumFaces(2) // Detect up to 2 faces to identify multi-face spoof attempts
+            .setOutputFaceBlendshapes(true)
+            .setOutputFacialTransformationMatrixes(true)
+            .setResultListener { result, mpImage ->
+                processResult(result, mpImage)
+            }
+            .setErrorListener { error ->
+                listener.onError(Exception(error.message))
+            }
+            .build()
+
+        return FaceLandmarker.createFromOptions(context, options)
+    }
+
     /**
-     * Feeds camera frames to MediaPipe asynchronously.
+     * Feeds camera frames to MediaPipe asynchronously with monotonic timestamp guarantee.
      */
+    @Synchronized
     fun detectAsync(bitmap: Bitmap, timestampMs: Long = SystemClock.uptimeMillis()) {
         val landmarker = faceLandmarker ?: return
+        val currentTimestamp = if (timestampMs <= lastTimestampMs) {
+            lastTimestampMs + 1
+        } else {
+            timestampMs
+        }
+        lastTimestampMs = currentTimestamp
+
         val mpImage = BitmapImageBuilder(bitmap).build()
-        landmarker.detectAsync(mpImage, timestampMs)
+        landmarker.detectAsync(mpImage, currentTimestamp)
     }
 
     private fun processResult(result: FaceLandmarkerResult, mpImage: MPImage) {

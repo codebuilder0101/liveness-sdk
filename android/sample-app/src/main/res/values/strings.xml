@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Solistra Liveness Demo</string>
+    <string name="title_sdk_demo">Solistra Liveness</string>
+    <string name="subtitle_sdk_demo">On-Device Active &amp; Passive Anti-Spoofing</string>
+    <string name="btn_start_verification">Start Verification</string>
+    <string name="preset_standard">Standard</string>
+    <string name="preset_high_security">High Security</string>
+    <string name="preset_custom">Custom</string>
+    <string name="section_config">Configuration &amp; Challenges</string>
+    <string name="section_results">Latest Verification Outcome</string>
+    <string name="section_history">Session Audit Log</string>
+    <string name="clear_history">Clear Log</string>
+</resources>

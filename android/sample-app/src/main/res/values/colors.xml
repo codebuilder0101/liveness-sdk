@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background & Surface -->
+    <color name="bg_dark">#09090B</color>
+    <color name="surface_card">#18181B</color>
+    <color name="surface_card_stroke">#27272A</color>
+    <color name="surface_input">#121215</color>
+    <color name="surface_highlight">#222227</color>
+
+    <!-- Brand Accents -->
+    <color name="brand_cyan">#00E5FF</color>
+    <color name="brand_cyan_dim">#1A00E5FF</color>
+    <color name="brand_blue">#0284C7</color>
+
+    <!-- Status Colors -->
+    <color name="status_success">#00E676</color>
+    <color name="status_success_dim">#1A00E676</color>
+    <color name="status_error">#FF1744</color>
+    <color name="status_error_dim">#1AFF1744</color>
+    <color name="status_warning">#FFB74D</color>
+    <color name="status_neutral">#71717A</color>
+
+    <!-- Typography -->
+    <color name="text_primary">#FAFAFA</color>
+    <color name="text_secondary">#A1A1AA</color>
+    <color name="text_tertiary">#71717A</color>
+    <color name="text_on_brand">#000000</color>
+</resources>

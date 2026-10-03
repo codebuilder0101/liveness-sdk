@@ -45,22 +45,34 @@ class MiniFASNetClassifier(
     }
 
     private fun setupInterpreter() {
-        try {
-            val modelBuffer = loadModelFile(context, modelAssetName)
-            val options = Interpreter.Options()
+        val modelBuffer = loadModelFile(context, modelAssetName)
+        var interp: Interpreter? = null
 
-            val compatList = CompatibilityList()
-            if (useGpu && compatList.isDelegateSupportedOnThisDevice) {
-                gpuDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
-                options.addDelegate(gpuDelegate)
-            } else {
-                options.setNumThreads(4)
+        if (useGpu) {
+            try {
+                val compatList = CompatibilityList()
+                if (compatList.isDelegateSupportedOnThisDevice) {
+                    gpuDelegate = GpuDelegate()
+                    val options = Interpreter.Options().apply {
+                        addDelegate(gpuDelegate)
+                    }
+                    interp = Interpreter(modelBuffer, options)
+                }
+            } catch (e: Throwable) {
+                gpuDelegate?.close()
+                gpuDelegate = null
+                interp = null
             }
-
-            interpreter = Interpreter(modelBuffer, options)
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
+
+        if (interp == null) {
+            val options = Interpreter.Options().apply {
+                setNumThreads(4)
+            }
+            interp = Interpreter(modelBuffer, options)
+        }
+
+        interpreter = interp
     }
 
     private fun loadModelFile(context: Context, modelPath: String): ByteBuffer {
@@ -110,17 +122,36 @@ class MiniFASNetClassifier(
 
         interp.run(inputBuffer, outputBuffer)
 
-        val probabilities = outputBuffer[0]
+        val logits = outputBuffer[0]
+        val probabilities = applySoftmax(logits)
         val spoof2d = probabilities[0]
         val realScore = probabilities[1]
         val spoof3d = probabilities[2]
 
         return AntiSpoofResult(
-            isReal = realScore > (spoof2d + spoof3d),
+            isReal = realScore > 0.5f && realScore > (spoof2d + spoof3d) * 0.5f,
             realConfidence = realScore,
             spoof2dConfidence = spoof2d,
             spoof3dConfidence = spoof3d
         )
+    }
+
+    private fun applySoftmax(logits: FloatArray): FloatArray {
+        var max = Float.NEGATIVE_INFINITY
+        for (v in logits) {
+            if (v > max) max = v
+        }
+        var sum = 0f
+        val exps = FloatArray(logits.size)
+        for (i in logits.indices) {
+            exps[i] = kotlin.math.exp(logits[i] - max)
+            sum += exps[i]
+        }
+        val probs = FloatArray(logits.size)
+        for (i in logits.indices) {
+            probs[i] = if (sum > 0f) exps[i] / sum else (1f / logits.size)
+        }
+        return probs
     }
 
     fun close() {

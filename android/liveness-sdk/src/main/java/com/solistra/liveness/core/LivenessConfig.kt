@@ -57,8 +57,8 @@ data class LivenessConfig(
     val eyeBlinkThreshold: Float = 0.60f,
     val smileThreshold: Float = 0.50f,
     val mouthOpenThreshold: Float = 0.55f,
-    val headYawThresholdDegrees: Float = 20.0f,
-    val headPitchThresholdDegrees: Float = 15.0f
+    val headYawThresholdDegrees: Float = 18.0f,
+    val headPitchThresholdDegrees: Float = 14.0f
 ) : Parcelable {
 
     companion object {

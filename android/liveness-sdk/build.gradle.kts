@@ -67,6 +67,7 @@ dependencies {
     val tfliteVersion = "2.14.0"
     implementation("org.tensorflow:tensorflow-lite:$tfliteVersion")
     implementation("org.tensorflow:tensorflow-lite-gpu:$tfliteVersion")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:$tfliteVersion")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
     // Kotlin Coroutines

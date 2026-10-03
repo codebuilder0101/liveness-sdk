@@ -1,0 +1,83 @@
+# ==============================================================================
+# Solistra Liveness SDK & Demo App - .gitignore
+# ==============================================================================
+
+# Gradle files and cache
+.gradle/
+build/
+*/build/
+*/*/build/
+.gradle-build/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+.shelf/
+.cxx/
+captures/
+heapdmp/
+
+# Local configuration files
+local.properties
+.bundle/
+
+# Build outputs (APKs, AARs, bundles)
+*.apk
+*.ap_
+*.aab
+*.aar
+*.dex
+
+# Keystore / Signing
+*.keystore
+*.jks
+*.p12
+*.key
+signing.properties
+
+# Visual Studio Code
+.vscode/
+
+# Xcode / Swift Package Manager / iOS
+.build/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcshareddata/xcschemes/*.xcscheme
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+xcuserdata/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# Log files
+*.log
+*.log.*

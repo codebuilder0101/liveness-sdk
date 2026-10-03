@@ -72,26 +72,21 @@ class CameraPreviewManager(
 
     private fun processImageProxy(imageProxy: ImageProxy) {
         try {
-            val bitmapBuffer = Bitmap.createBitmap(
-                imageProxy.width,
-                imageProxy.height,
-                Bitmap.Config.ARGB_8888
-            )
-            imageProxy.planes[0].buffer.rewind()
-            bitmapBuffer.copyPixelsFromBuffer(imageProxy.planes[0].buffer)
-
+            val bitmap = imageProxy.toBitmap()
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             val matrix = Matrix()
-            matrix.postRotate(rotationDegrees.toFloat())
-            // Front camera mirror compensation
-            matrix.postScale(-1f, 1f, bitmapBuffer.width / 2f, bitmapBuffer.height / 2f)
+            if (rotationDegrees != 0) {
+                matrix.postRotate(rotationDegrees.toFloat())
+            }
+            // Front camera mirror compensation (flip horizontally)
+            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
 
             val rotatedBitmap = Bitmap.createBitmap(
-                bitmapBuffer,
+                bitmap,
                 0,
                 0,
-                bitmapBuffer.width,
-                bitmapBuffer.height,
+                bitmap.width,
+                bitmap.height,
                 matrix,
                 true
             )

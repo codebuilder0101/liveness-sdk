@@ -50,32 +50,49 @@ liveness-sdk/
 
 ## 📱 Android Quickstart
 
-### 1. Launching Liveness Verification
+### 1. Launching Liveness Verification with ActivityResultContract
 ```kotlin
 import com.solistra.liveness.core.LivenessChallenge
 import com.solistra.liveness.core.LivenessConfig
+import com.solistra.liveness.core.LivenessResult
 import com.solistra.liveness.ui.LivenessActivity
-import com.solistra.liveness.ui.LivenessSDKResultHolder
 
-// Configure session
-val config = LivenessConfig(
-    challenges = listOf(LivenessChallenge.BLINK, LivenessChallenge.SMILE),
-    challengeTimeoutSeconds = 4.0f,
-    passiveSpoofThreshold = 0.85f,
-    enableScreenSecurity = true
-)
+class MyActivity : AppCompatActivity() {
 
-// Launch Activity
-val intent = LivenessActivity.createIntent(context, config)
-livenessLauncher.launch(intent)
+    // Register modern ActivityResultContract
+    private val livenessLauncher = registerForActivityResult(
+        LivenessActivity.Contract()
+    ) { result: LivenessResult? ->
+        if (result != null && result.isLive) {
+            val verifiedFaceBitmap = result.bestFaceImage
+            val confidence = result.passiveScore
+            val duration = result.sessionDurationMs
+            val challengesPassed = result.completedChallenges
+            // Liveness verified successfully
+        } else {
+            // Liveness verification failed or user cancelled
+        }
+    }
 
-// Retrieve result in ActivityResultCallback
-val result = LivenessSDKResultHolder.lastResult
-if (result?.isLive == true) {
-    val verifiedFaceBitmap = result.bestFaceImage
-    val confidence = result.passiveScore
+    private fun startLivenessCheck() {
+        val config = LivenessConfig(
+            challenges = listOf(LivenessChallenge.BLINK, LivenessChallenge.SMILE),
+            challengeTimeoutSeconds = 4.0f,
+            passiveSpoofThreshold = 0.85f,
+            enableScreenSecurity = true,
+            useGpuDelegate = true
+        )
+        livenessLauncher.launch(config)
+    }
 }
 ```
+
+### 2. Testing via the Demo App
+The `:sample-app` module contains a full test suite with:
+- **Preset modes**: Standard (Blink + Smile), High Security (3 randomized challenges), and Custom.
+- **Challenge sequence builder**: Select any combination of Blink, Smile, Turn Left, Turn Right, Nod Head, Open Mouth.
+- **Real-time sliders**: Challenge timeout (2.0s - 8.0s), Passive spoof threshold (50% - 98%), and Frame sample size.
+- **Verification audit log**: History of recent verification attempts, duration, confidence scores, and face snapshot inspection dialog.
 
 ---
 

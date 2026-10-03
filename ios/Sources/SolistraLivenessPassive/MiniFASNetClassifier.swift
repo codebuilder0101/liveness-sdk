@@ -63,12 +63,23 @@ public final class MiniFASNetClassifier {
             let outputName = model.modelDescription.outputDescriptionsByName.keys.first ?? "output"
 
             if let multiArray = output.featureValue(for: outputName)?.multiArrayValue, multiArray.count >= 3 {
-                let spoof2d = multiArray[0].floatValue
-                let real = multiArray[1].floatValue
-                let spoof3d = multiArray[2].floatValue
+                let raw0 = multiArray[0].floatValue
+                let raw1 = multiArray[1].floatValue
+                let raw2 = multiArray[2].floatValue
+
+                // Softmax normalizer
+                let maxVal = max(raw0, max(raw1, raw2))
+                let exp0 = exp(raw0 - maxVal)
+                let exp1 = exp(raw1 - maxVal)
+                let exp2 = exp(raw2 - maxVal)
+                let sumExp = exp0 + exp1 + exp2
+
+                let spoof2d = sumExp > 0 ? exp0 / sumExp : 0.33
+                let real = sumExp > 0 ? exp1 / sumExp : 0.33
+                let spoof3d = sumExp > 0 ? exp2 / sumExp : 0.33
 
                 return AntiSpoofPrediction(
-                    isReal: real > (spoof2d + spoof3d),
+                    isReal: real > 0.5 && real > (spoof2d + spoof3d) * 0.5,
                     realConfidence: real,
                     spoof2dConfidence: spoof2d,
                     spoof3dConfidence: spoof3d

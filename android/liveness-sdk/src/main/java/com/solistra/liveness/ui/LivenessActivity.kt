@@ -13,11 +13,13 @@ import android.os.VibratorManager
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import android.graphics.RectF
 import com.solistra.liveness.core.LivenessCallback
 import com.solistra.liveness.core.LivenessChallenge
 import com.solistra.liveness.core.LivenessConfig
@@ -64,10 +66,43 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
         setContentView(binding.root)
 
         binding.btnClose.setOnClickListener {
-            finish()
+            handleCancelation()
+        }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleCancelation()
+            }
+        })
+
+        // Synchronize actual screen oval cutout with detection engine
+        binding.overlayView.post {
+            val overlayW = binding.overlayView.width.toFloat()
+            val overlayH = binding.overlayView.height.toFloat()
+            if (overlayW > 0 && overlayH > 0) {
+                val rect = binding.overlayView.ovalRect
+                val normRect = RectF(
+                    rect.left / overlayW,
+                    rect.top / overlayH,
+                    rect.right / overlayW,
+                    rect.bottom / overlayH
+                )
+                engine?.setGuideRect(normRect)
+            }
         }
 
         checkCameraPermission()
+    }
+
+    private fun handleCancelation() {
+        val cancelError = LivenessException.UserCancelled()
+        LivenessSDKResultHolder.lastError = cancelError
+        val dataIntent = Intent().apply {
+            putExtra(EXTRA_ERROR_MESSAGE, cancelError.message)
+            putExtra(EXTRA_ERROR_CODE, cancelError.errorCode)
+        }
+        setResult(RESULT_CANCELED, dataIntent)
+        finish()
     }
 
     private fun checkCameraPermission() {
@@ -102,6 +137,11 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
                 Toast.makeText(this, "Camera initialization error: ${exc.message}", Toast.LENGTH_SHORT).show()
             }
         )
+    }
+
+    override fun onPause() {
+        super.onPause()
+        engine?.stopSession()
     }
 
     override fun onStateChanged(state: LivenessState) {
