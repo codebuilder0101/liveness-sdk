@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center_horizontal"
+    android:background="#121212">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Solistra Liveness SDK"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginTop="32dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Active &amp; Passive On-Device Anti-Spoofing"
+        android:textColor="#9E9E9E"
+        android:textSize="14sp"
+        android:layout_marginTop="8dp" />
+
+    <ImageView
+        android:id="@+id/ivResultFace"
+        android:layout_width="180dp"
+        android:layout_height="220dp"
+        android:layout_marginTop="32dp"
+        android:background="#1E1E1E"
+        android:scaleType="centerCrop"
+        android:contentDescription="Verified face snapshot" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="Status: Ready"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/tvPassiveScore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="Passive Anti-Spoof Score: --"
+        android:textColor="#B0BEC5"
+        android:textSize="14sp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/btnStartLiveness"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Start Liveness Check"
+        android:textAllCaps="false"
+        android:textColor="#000000"
+        android:backgroundTint="#00E5FF"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+</LinearLayout>
