@@ -24,7 +24,7 @@ data class LivenessConfig(
     /**
      * Maximum time in seconds allocated for each individual challenge before timeout.
      */
-    val challengeTimeoutSeconds: Float = 4.0f,
+    val challengeTimeoutSeconds: Float = 6.0f,
 
     /**
      * Required minimum confidence threshold for passive anti-spoofing (0.0 to 1.0).

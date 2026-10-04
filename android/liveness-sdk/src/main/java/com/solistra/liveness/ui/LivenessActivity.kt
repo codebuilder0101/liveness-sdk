@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +36,7 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
     private var engine: LivenessEngine? = null
     private var cameraManager: CameraPreviewManager? = null
     private var config: LivenessConfig = LivenessConfig.default()
+    private var isFinishingSession = false
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -42,6 +44,13 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
         if (isGranted) {
             initializeCameraAndEngine()
         } else {
+            val permError = LivenessException.CameraInitializationFailed("Camera permission is required")
+            LivenessSDKResultHolder.lastError = permError
+            val dataIntent = Intent().apply {
+                putExtra(EXTRA_ERROR_MESSAGE, permError.message)
+                putExtra(EXTRA_ERROR_CODE, permError.errorCode)
+            }
+            setResult(RESULT_CANCELED, dataIntent)
             Toast.makeText(this, "Camera permission is required for liveness verification", Toast.LENGTH_LONG).show()
             finish()
         }
@@ -80,12 +89,15 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
             val overlayW = binding.overlayView.width.toFloat()
             val overlayH = binding.overlayView.height.toFloat()
             if (overlayW > 0 && overlayH > 0) {
-                val rect = binding.overlayView.ovalRect
+                val ovalW = overlayW * 0.72f
+                val ovalH = ovalW * 1.35f
+                val left = (overlayW - ovalW) / 2f
+                val top = (overlayH - ovalH) / 2f - (overlayH * 0.04f)
                 val normRect = RectF(
-                    rect.left / overlayW,
-                    rect.top / overlayH,
-                    rect.right / overlayW,
-                    rect.bottom / overlayH
+                    left / overlayW,
+                    top / overlayH,
+                    (left + ovalW) / overlayW,
+                    (top + ovalH) / overlayH
                 )
                 engine?.setGuideRect(normRect)
             }
@@ -95,6 +107,8 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
     }
 
     private fun handleCancelation() {
+        if (isFinishingSession) return
+        isFinishingSession = true
         val cancelError = LivenessException.UserCancelled()
         LivenessSDKResultHolder.lastError = cancelError
         val dataIntent = Intent().apply {
@@ -134,14 +148,31 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
                 engine?.startSession()
             },
             onError = { exc ->
+                val camError = LivenessException.CameraInitializationFailed(exc.message ?: "Camera initialization failed")
+                LivenessSDKResultHolder.lastError = camError
+                val dataIntent = Intent().apply {
+                    putExtra(EXTRA_ERROR_MESSAGE, camError.message)
+                    putExtra(EXTRA_ERROR_CODE, camError.errorCode)
+                }
+                setResult(RESULT_CANCELED, dataIntent)
                 Toast.makeText(this, "Camera initialization error: ${exc.message}", Toast.LENGTH_SHORT).show()
+                finish()
             }
         )
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (engine != null && !isFinishingSession && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            engine?.startSession()
+        }
+    }
+
     override fun onPause() {
         super.onPause()
-        engine?.stopSession()
+        if (!isFinishingSession) {
+            engine?.stopSession()
+        }
     }
 
     override fun onStateChanged(state: LivenessState) {
@@ -196,22 +227,28 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
     }
 
     override fun onSuccess(result: LivenessResult) {
+        if (isFinishingSession) return
+        isFinishingSession = true
         LivenessSDKResultHolder.lastResult = result
+        LivenessSDKResultHolder.lastError = null
         val dataIntent = Intent().apply {
             putExtra(EXTRA_RESULT, result)
         }
         setResult(RESULT_OK, dataIntent)
-        binding.root.postDelayed({ finish() }, 1000)
+        binding.root.postDelayed({ finish() }, 800)
     }
 
     override fun onError(error: LivenessException) {
+        if (isFinishingSession) return
+        isFinishingSession = true
         LivenessSDKResultHolder.lastError = error
+        LivenessSDKResultHolder.lastResult = null
         val dataIntent = Intent().apply {
             putExtra(EXTRA_ERROR_MESSAGE, error.message)
             putExtra(EXTRA_ERROR_CODE, error.errorCode)
         }
         setResult(RESULT_CANCELED, dataIntent)
-        binding.root.postDelayed({ finish() }, 1800)
+        binding.root.postDelayed({ finish() }, 1500)
     }
 
     private fun triggerHapticFeedback(isSuccess: Boolean) {
@@ -259,10 +296,13 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
         }
 
         override fun parseResult(resultCode: Int, intent: Intent?): LivenessResult? {
-            if (resultCode != Activity.RESULT_OK || intent == null) {
+            if (resultCode != Activity.RESULT_OK) {
                 return null
             }
-            return IntentCompat.getParcelableExtra(intent, EXTRA_RESULT, LivenessResult::class.java)
+            val fromIntent = intent?.let {
+                IntentCompat.getParcelableExtra(it, EXTRA_RESULT, LivenessResult::class.java)
+            }
+            return fromIntent ?: LivenessSDKResultHolder.lastResult
         }
     }
 }
@@ -272,4 +312,6 @@ object LivenessSDKResultHolder {
     var lastResult: LivenessResult? = null
     @Volatile
     var lastError: LivenessException? = null
+    @Volatile
+    var fullResolutionBitmap: Bitmap? = null
 }

@@ -367,11 +367,17 @@ class LivenessEngine(
             synchronized(stateLock) {
                 if (isLive) {
                     val sessionDuration = SystemClock.uptimeMillis() - sessionStartTimeMs
+                    val rawBestImage = bestFaceBitmap
+                    val thumbnail = createScaledThumbnail(rawBestImage, maxDimension = 400)
+                    
+                    // Keep full resolution bitmap in memory singleton
+                    com.solistra.liveness.ui.LivenessSDKResultHolder.fullResolutionBitmap = rawBestImage
+
                     val result = LivenessResult(
                         isLive = true,
                         passiveScore = avgPassiveScore,
-                        completedChallenges = Collections.unmodifiableList(completedChallenges.toList()),
-                        bestFaceImage = bestFaceBitmap,
+                        completedChallenges = ArrayList(completedChallenges),
+                        bestFaceImage = thumbnail,
                         sessionDurationMs = sessionDuration
                     )
                     isSessionActive = false
@@ -382,6 +388,18 @@ class LivenessEngine(
                 }
             }
         }
+    }
+
+    private fun createScaledThumbnail(bitmap: Bitmap?, maxDimension: Int = 400): Bitmap? {
+        if (bitmap == null) return null
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= maxDimension && height <= maxDimension) return bitmap
+
+        val ratio = minOf(maxDimension.toFloat() / width, maxDimension.toFloat() / height)
+        val dstW = (width * ratio).toInt().coerceAtLeast(1)
+        val dstH = (height * ratio).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, dstW, dstH, true)
     }
 
     private fun finishWithError(error: LivenessException) {

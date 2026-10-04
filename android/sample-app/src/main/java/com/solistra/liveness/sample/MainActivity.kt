@@ -68,6 +68,9 @@ class MainActivity : AppCompatActivity() {
 
         // Launch button
         binding.btnStartVerification.setOnClickListener {
+            LivenessSDKResultHolder.lastResult = null
+            LivenessSDKResultHolder.lastError = null
+            LivenessSDKResultHolder.fullResolutionBitmap = null
             val config = buildLivenessConfig()
             livenessLauncher.launch(config)
         }
@@ -148,9 +151,10 @@ class MainActivity : AppCompatActivity() {
             val challengeNames = fallbackResult.completedChallenges.joinToString(", ") { it.name }
             binding.tvChallengesCompleted.text = "Challenges: $challengeNames"
 
-            fallbackResult.bestFaceImage?.let { faceBitmap ->
-                lastCapturedFace = faceBitmap
-                binding.ivVerifiedFace.setImageBitmap(faceBitmap)
+            val faceBitmap = fallbackResult.bestFaceImage ?: LivenessSDKResultHolder.fullResolutionBitmap
+            faceBitmap?.let {
+                lastCapturedFace = it
+                binding.ivVerifiedFace.setImageBitmap(it)
             }
 
             binding.tvErrorBanner.visibility = View.GONE
@@ -229,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                 binding.chipNodHead.isChecked = false
                 binding.chipOpenMouth.isChecked = false
 
-                binding.sliderTimeout.value = 4.0f
+                binding.sliderTimeout.value = 6.0f
                 binding.sliderSpoofThreshold.value = 75f
                 binding.sliderSampleSize.value = 8f
                 binding.switchScreenSecurity.isChecked = true
@@ -244,8 +248,8 @@ class MainActivity : AppCompatActivity() {
                 binding.chipNodHead.isChecked = false
                 binding.chipOpenMouth.isChecked = true
 
-                binding.sliderTimeout.value = 3.5f
-                binding.sliderSpoofThreshold.value = 90f
+                binding.sliderTimeout.value = 5.0f
+                binding.sliderSpoofThreshold.value = 85f
                 binding.sliderSampleSize.value = 12f
                 binding.switchScreenSecurity.isChecked = true
                 binding.switchGpu.isChecked = true
