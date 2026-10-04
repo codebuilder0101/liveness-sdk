@@ -41,13 +41,10 @@ public final class MiniFASNetClassifier {
      */
     public func classify(croppedBitmap: UIImage) -> AntiSpoofPrediction {
         guard let model = model else {
-            // Safe fallback if model is not loaded
-            return AntiSpoofPrediction(
-                isReal: true,
-                realConfidence: 0.90,
-                spoof2dConfidence: 0.05,
-                spoof3dConfidence: 0.05
-            )
+            // Model not loaded — do NOT silently pass everyone through.
+            // Return a failed prediction so the caller can surface this as an error.
+            print("[MiniFASNetClassifier] WARNING: CoreML model not loaded. Returning spoof result.")
+            return AntiSpoofPrediction(isReal: false, realConfidence: 0, spoof2dConfidence: 1, spoof3dConfidence: 0)
         }
 
         guard let pixelBuffer = croppedBitmap.toCVPixelBuffer(width: inputWidth, height: inputHeight) else {

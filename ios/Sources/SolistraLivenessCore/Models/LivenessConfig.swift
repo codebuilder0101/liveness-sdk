@@ -23,10 +23,10 @@ public struct LivenessConfig {
         passiveFrameSampleSize: Int = 8,
         enableScreenSecurity: Bool = true,
         eyeBlinkThreshold: Float = 0.60,
-        smileThreshold: Float = 0.50,
+        smileThreshold: Float = 0.35,
         mouthOpenThreshold: Float = 0.55,
         headYawThresholdDegrees: Float = 20.0,
-        headPitchThresholdDegrees: Float = 15.0
+        headPitchThresholdDegrees: Float = 18.0
     ) {
         self.challenges = challenges
         self.randomChallengeCount = randomChallengeCount

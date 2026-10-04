@@ -184,7 +184,8 @@ public final class ChallengeEvaluator {
             headNodPeakReached = true
             return (false, 0.7)
         }
-        if headNodPeakReached && abs(headPose.pitch) < 6.0 {
+        // 10° return threshold (loosened from 6°) to reliably detect the head returning to neutral
+        if headNodPeakReached && abs(headPose.pitch) < 10.0 {
             return (true, 1.0)
         }
         let progress = min(0.6, max(0.0, headPose.pitch / targetPitch))

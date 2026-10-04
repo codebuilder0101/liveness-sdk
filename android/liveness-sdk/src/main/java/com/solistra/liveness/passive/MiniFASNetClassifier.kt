@@ -86,7 +86,9 @@ class MiniFASNetClassifier(
 
     /**
      * Runs passive anti-spoof inference on an 80x80 cropped bitmap.
-     * Expected input tensor format: [1, 3, 80, 80] NCHW, BGR, normalized x/255.0f.
+     * Expected input tensor format: [1, 3, 80, 80] NCHW, RGB, normalized as (pixel - mean) / 255.0f.
+     * Mean values: R=123, G=117, B=104 (matching Silent-Face-Anti-Spoofing training preprocessing).
+     * Channel order is RGB to match the ONNX export pipeline (PyTorch + PIL).
      */
     @Synchronized
     fun classify(croppedFaceBitmap: Bitmap): AntiSpoofResult {
@@ -106,23 +108,26 @@ class MiniFASNetClassifier(
         resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
         val numPixels = inputSize * inputSize
 
-        // Populate tensor in NCHW format [1, 3, 80, 80] with BGR channel order and x / 255.0f scaling
-        // Channel 0: Blue [80 x 80]
+        // Populate tensor in NCHW format [1, 3, 80, 80] with RGB channel order.
+        // Apply mean subtraction normalization: (pixel - mean) / 255.0f
+        // This matches the original Silent-Face-Anti-Spoofing training preprocessing.
+
+        // Channel 0: Red [80 x 80]
         for (i in 0 until numPixels) {
-            val b = (intValues[i] and 0xFF).toFloat() / 255.0f
-            inputBuffer.putFloat(b)
+            val r = ((intValues[i] shr 16) and 0xFF).toFloat()
+            inputBuffer.putFloat((r - meanR) / 255.0f)
         }
 
         // Channel 1: Green [80 x 80]
         for (i in 0 until numPixels) {
-            val g = ((intValues[i] shr 8) and 0xFF).toFloat() / 255.0f
-            inputBuffer.putFloat(g)
+            val g = ((intValues[i] shr 8) and 0xFF).toFloat()
+            inputBuffer.putFloat((g - meanG) / 255.0f)
         }
 
-        // Channel 2: Red [80 x 80]
+        // Channel 2: Blue [80 x 80]
         for (i in 0 until numPixels) {
-            val r = ((intValues[i] shr 16) and 0xFF).toFloat() / 255.0f
-            inputBuffer.putFloat(r)
+            val b = (intValues[i] and 0xFF).toFloat()
+            inputBuffer.putFloat((b - meanB) / 255.0f)
         }
 
         // Output tensor shape: [1, 3] -> [Spoof2D, Real/Live, Spoof3D] with Softmax already applied by model

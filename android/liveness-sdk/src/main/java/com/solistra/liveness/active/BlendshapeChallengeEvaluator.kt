@@ -157,8 +157,9 @@ class BlendshapeChallengeEvaluator(
             headNodPeakReached = true
             return Pair(false, 0.7f)
         }
-        
-        if (headNodPeakReached && abs(headPose.pitch) < 6f) {
+
+        // 10° return threshold (loosened from 6°) to reliably detect the head returning to neutral
+        if (headNodPeakReached && abs(headPose.pitch) < 10f) {
             return Pair(true, 1.0f)
         }
 

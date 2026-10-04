@@ -163,8 +163,14 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
 
     override fun onResume() {
         super.onResume()
-        if (engine != null && !isFinishingSession && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            engine?.startSession()
+        // Only (re)start the session if we're idle — not if a session is already in progress.
+        // This avoids resetting a live challenge when the user briefly backgrounds the app.
+        val eng = engine
+        if (eng != null && !isFinishingSession &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+            (eng.getCurrentState() is LivenessState.Idle)
+        ) {
+            eng.startSession()
         }
     }
 

@@ -7,7 +7,7 @@ import java.util.ArrayDeque
  */
 class SpoofScoreSmoother(
     private val windowSize: Int = 8,
-    private val passThreshold: Float = 0.85f
+    private val passThreshold: Float = 0.75f
 ) {
     private val scores = ArrayDeque<Float>(windowSize)
 

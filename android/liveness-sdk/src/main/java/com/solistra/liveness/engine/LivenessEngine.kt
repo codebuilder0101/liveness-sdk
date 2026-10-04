@@ -93,6 +93,8 @@ class LivenessEngine(
         }
     }
 
+    fun getCurrentState(): LivenessState = currentState
+
     fun startSession() {
         synchronized(stateLock) {
             if (isSessionActive) return
