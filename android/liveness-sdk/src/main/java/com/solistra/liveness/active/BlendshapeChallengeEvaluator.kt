@@ -3,7 +3,6 @@ package com.solistra.liveness.active
 import com.solistra.liveness.core.LivenessChallenge
 import com.solistra.liveness.core.LivenessConfig
 import kotlin.math.abs
-import java.util.ArrayDeque
 
 /**
  * State tracking evaluator for active liveness challenges using MediaPipe blendshapes and head pose.
@@ -14,29 +13,37 @@ class BlendshapeChallengeEvaluator(
     private var currentChallenge: LivenessChallenge? = null
     private var challengeStartTimeMs: Long = 0L
 
-    // ── Blink state ──────────────────────────────────────────────────────────
-    private var hasClosedEyes = false
-    private var eyeClosedTimeMs = 0L
-    // Rolling window of raw blink scores for noise smoothing (last 4 frames)
-    private val blinkScoreWindow = ArrayDeque<Float>(4)
+    // ── Baseline Head Calibration ────────────────────────────────────────────
+    private var baselinePitch: Float = 0f
+    private var baselineYaw: Float = 0f
 
-    // ── Smile state ──────────────────────────────────────────────────────────
+    // ── Blink state (hysteresis transition) ──────────────────────────────────
+    private var closedSinceMs = -1L
+
+    // ── Smile state (hysteresis + hold duration) ─────────────────────────────
     private var smileHoldStartTimeMs = 0L
-    // Rolling window for smile score smoothing (last 5 frames)
-    private val smileScoreWindow = ArrayDeque<Float>(5)
+    private var lastSmileValidTimeMs = 0L
 
     // ── Open Mouth state ─────────────────────────────────────────────────────
     private var mouthOpenHoldStartTimeMs = 0L
+    private var lastMouthValidTimeMs = 0L
 
     // ── Head Turn state ──────────────────────────────────────────────────────
-    private var headTurnPeakReached = false
     private var headTurnPeakHoldStartMs = 0L
 
-    // ── Head Nod state ───────────────────────────────────────────────────────
-    // FSM: WAITING_FOR_DOWN → WAITING_FOR_RETURN → COMPLETE
+    // ── Head Nod state (FSM with baseline excursion and return) ──────────────
     private enum class NodPhase { WAITING_FOR_DOWN, WAITING_FOR_RETURN, COMPLETE }
     private var nodPhase = NodPhase.WAITING_FOR_DOWN
     private var nodPeakPitch = 0f
+    private var nodStartMs = 0L
+
+    fun setBaseline(pitch: Float, yaw: Float) {
+        this.baselinePitch = pitch
+        this.baselineYaw = yaw
+    }
+
+    fun getBaselinePitch(): Float = baselinePitch
+    fun getBaselineYaw(): Float = baselineYaw
 
     fun startChallenge(challenge: LivenessChallenge, timestampMs: Long) {
         currentChallenge = challenge
@@ -45,16 +52,15 @@ class BlendshapeChallengeEvaluator(
     }
 
     private fun resetChallengeState() {
-        hasClosedEyes = false
-        eyeClosedTimeMs = 0L
-        blinkScoreWindow.clear()
+        closedSinceMs = -1L
         smileHoldStartTimeMs = 0L
-        smileScoreWindow.clear()
+        lastSmileValidTimeMs = 0L
         mouthOpenHoldStartTimeMs = 0L
-        headTurnPeakReached = false
+        lastMouthValidTimeMs = 0L
         headTurnPeakHoldStartMs = 0L
         nodPhase = NodPhase.WAITING_FOR_DOWN
         nodPeakPitch = 0f
+        nodStartMs = 0L
     }
 
     /**
@@ -72,194 +78,200 @@ class BlendshapeChallengeEvaluator(
             LivenessChallenge.BLINK -> evaluateBlink(blendshapes, timestampMs)
             LivenessChallenge.SMILE -> evaluateSmile(blendshapes, timestampMs)
             LivenessChallenge.OPEN_MOUTH -> evaluateOpenMouth(blendshapes, timestampMs)
-            LivenessChallenge.TURN_LEFT -> evaluateHeadTurn(headPose, isLeft = true)
-            LivenessChallenge.TURN_RIGHT -> evaluateHeadTurn(headPose, isLeft = false)
-            LivenessChallenge.NOD_HEAD -> evaluateHeadNod(headPose)
+            LivenessChallenge.TURN_LEFT -> evaluateHeadTurn(headPose, isLeft = true, timestampMs = timestampMs)
+            LivenessChallenge.TURN_RIGHT -> evaluateHeadTurn(headPose, isLeft = false, timestampMs = timestampMs)
+            LivenessChallenge.NOD_HEAD -> evaluateHeadNod(headPose, timestampMs = timestampMs)
         }
     }
 
+    /**
+     * Blink detection using hysteresis transition:
+     * - Closed when average blink score exceeds closeThreshold (~0.40).
+     * - Complete when eyes reopen (blink scores drop below 0.25) within valid duration (40ms - 1500ms).
+     */
     private fun evaluateBlink(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val blinkLeft = blendshapes["eyeBlinkLeft"] ?: 0f
         val blinkRight = blendshapes["eyeBlinkRight"] ?: 0f
+        val avgBlink = (blinkLeft + blinkRight) / 2.0f
 
-        // Smooth blink scores over a short rolling window to filter per-frame noise
-        val rawAvg = (blinkLeft + blinkRight) / 2.0f
-        if (blinkScoreWindow.size >= 4) blinkScoreWindow.removeFirst()
-        blinkScoreWindow.addLast(rawAvg)
-        val smoothedBlink = blinkScoreWindow.average().toFloat()
+        val closeThreshold = (config.eyeBlinkThreshold * 0.80f).coerceIn(0.35f, 0.60f)
+        val openThreshold = 0.25f
 
-        // Use a slightly lower threshold on the smoothed value for robustness
-        val effectiveThreshold = config.eyeBlinkThreshold * 0.85f  // ~0.51 from default 0.60
-        val isEyesClosed = smoothedBlink >= effectiveThreshold
-        // Wider open-eye band: below 0.30 is clearly open (was 0.25, misses heavy-lidded users)
-        val isEyesOpen = blinkLeft < 0.30f && blinkRight < 0.30f
-
-        if (!hasClosedEyes) {
-            if (isEyesClosed) {
-                hasClosedEyes = true
-                eyeClosedTimeMs = timestampMs
+        if (closedSinceMs < 0L) {
+            if (avgBlink >= closeThreshold) {
+                closedSinceMs = timestampMs
                 return Pair(false, 0.5f)
             }
-            val progress = (smoothedBlink / effectiveThreshold).coerceIn(0f, 0.45f)
+            val progress = (avgBlink / closeThreshold).coerceIn(0f, 0.45f)
             return Pair(false, progress)
         } else {
-            val closedDuration = timestampMs - eyeClosedTimeMs
-            if (isEyesOpen) {
-                return when {
-                    // Valid blink: was closed for 50ms–2500ms then reopened
-                    closedDuration in 50..2500 -> Pair(true, 1.0f)
-                    // Eyes were closed too long (held shut) — reset and wait for next blink
-                    closedDuration > 2500 -> {
-                        hasClosedEyes = false
-                        blinkScoreWindow.clear()
-                        Pair(false, 0f)
-                    }
-                    else -> Pair(false, 0.75f)
+            val duration = timestampMs - closedSinceMs
+            val isReopened = (avgBlink < openThreshold) || (blinkLeft < openThreshold && blinkRight < openThreshold)
+
+            if (isReopened) {
+                closedSinceMs = -1L
+                return if (duration in 40..1500) {
+                    Pair(true, 1.0f)
+                } else {
+                    Pair(false, 0f)
                 }
+            } else if (duration > 2500) {
+                // Eyes held closed too long (e.g. squinting or sleeping)
+                closedSinceMs = -1L
+                return Pair(false, 0f)
             }
             return Pair(false, 0.75f)
         }
     }
 
+    /**
+     * Smile detection with mouth corner dominance and cheek squint support.
+     * Uses 150ms hold time and tolerates brief single-frame drops.
+     */
     private fun evaluateSmile(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val smileLeft = blendshapes["mouthSmileLeft"] ?: 0f
         val smileRight = blendshapes["mouthSmileRight"] ?: 0f
-        // Cheek raises strongly correlate with genuine smiles and compensate for mouth asymmetry
         val cheekLeft = blendshapes["cheekSquintLeft"] ?: 0f
         val cheekRight = blendshapes["cheekSquintRight"] ?: 0f
 
-        // Composite smile score: weigh mouth corners (70%) + cheek squint (30%)
-        // Use the STRONGER side to avoid failing due to natural facial asymmetry
-        val strongerSideSmile = maxOf(smileLeft, smileRight)
+        val strongerSmile = maxOf(smileLeft, smileRight)
         val avgCheek = (cheekLeft + cheekRight) / 2.0f
-        val compositeScore = strongerSideSmile * 0.70f + avgCheek * 0.30f
+        // Mouth corners are primary (85%), cheek squints provide minor boost (15%)
+        val compositeScore = strongerSmile * 0.85f + avgCheek * 0.15f
 
-        // Smooth over last 5 frames to eliminate single-frame noise
-        if (smileScoreWindow.size >= 5) smileScoreWindow.removeFirst()
-        smileScoreWindow.addLast(compositeScore)
-        val smoothedScore = smileScoreWindow.average().toFloat()
+        val effectiveThreshold = (config.smileThreshold * 0.85f).coerceIn(0.25f, 0.45f)
+        val requiredHold = 150L
 
-        // Effective threshold is lower than raw config because we use composite + smoothed score
-        // Default config.smileThreshold is 0.35; effective composite threshold ≈ 0.28
-        val effectiveThreshold = config.smileThreshold * 0.80f
-
-        val isSmiling = smoothedScore >= effectiveThreshold
-
-        if (isSmiling) {
+        if (compositeScore >= effectiveThreshold) {
             if (smileHoldStartTimeMs == 0L) {
                 smileHoldStartTimeMs = timestampMs
             }
+            lastSmileValidTimeMs = timestampMs
             val heldDuration = timestampMs - smileHoldStartTimeMs
-            // Reduced hold to 250ms — enough to confirm genuine expression, fast enough to feel responsive
-            val requiredHoldDuration = 250L
-            val progress = (0.5f + (heldDuration.toFloat() / requiredHoldDuration) * 0.5f).coerceAtMost(1.0f)
+            val progress = (0.5f + (heldDuration.toFloat() / requiredHold) * 0.5f).coerceAtMost(1.0f)
 
-            if (heldDuration >= requiredHoldDuration) {
+            if (heldDuration >= requiredHold) {
                 return Pair(true, 1.0f)
             }
             return Pair(false, progress)
         } else {
-            // Only reset hold timer if score drops clearly below threshold (hysteresis band)
-            if (smoothedScore < effectiveThreshold * 0.75f) {
+            // Tolerate single frame glitch (up to 120ms) before wiping hold
+            if (timestampMs - lastSmileValidTimeMs > 120L) {
                 smileHoldStartTimeMs = 0L
             }
-            val progress = (smoothedScore / effectiveThreshold) * 0.5f
+            val progress = (compositeScore / effectiveThreshold) * 0.5f
             return Pair(false, progress.coerceIn(0f, 0.5f))
         }
     }
 
+    /**
+     * Open mouth detection with jawOpen threshold and 150ms hold time.
+     */
     private fun evaluateOpenMouth(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val jawOpen = blendshapes["jawOpen"] ?: 0f
-        val isOpen = jawOpen >= config.mouthOpenThreshold
+        val effectiveThreshold = (config.mouthOpenThreshold * 0.85f).coerceIn(0.28f, 0.50f)
+        val requiredHold = 150L
 
-        if (isOpen) {
+        if (jawOpen >= effectiveThreshold) {
             if (mouthOpenHoldStartTimeMs == 0L) {
                 mouthOpenHoldStartTimeMs = timestampMs
             }
+            lastMouthValidTimeMs = timestampMs
             val heldDuration = timestampMs - mouthOpenHoldStartTimeMs
-            val requiredHold = 300L
+            val progress = (0.5f + (heldDuration.toFloat() / requiredHold) * 0.5f).coerceAtMost(1.0f)
+
             if (heldDuration >= requiredHold) {
                 return Pair(true, 1.0f)
             }
-            return Pair(false, 0.5f + (heldDuration.toFloat() / requiredHold) * 0.5f)
+            return Pair(false, progress)
         } else {
-            mouthOpenHoldStartTimeMs = 0L
-            val progress = (jawOpen / config.mouthOpenThreshold) * 0.5f
+            if (timestampMs - lastMouthValidTimeMs > 120L) {
+                mouthOpenHoldStartTimeMs = 0L
+            }
+            val progress = (jawOpen / effectiveThreshold) * 0.5f
             return Pair(false, progress.coerceIn(0f, 0.5f))
         }
     }
 
-    private fun evaluateHeadTurn(headPose: HeadPose, isLeft: Boolean): Pair<Boolean, Float> {
+    /**
+     * Head turn detection relative to alignment baseline yaw.
+     * TURN_LEFT: user turns face left -> deltaYaw positive (or positive excursion).
+     * TURN_RIGHT: user turns face right -> deltaYaw negative (or negative excursion).
+     */
+    private fun evaluateHeadTurn(
+        headPose: HeadPose,
+        isLeft: Boolean,
+        timestampMs: Long
+    ): Pair<Boolean, Float> {
+        val deltaYaw = headPose.yaw - baselineYaw
+        // In unmirrored camera frame:
+        // When user looks to their left, nose moves left -> positive yaw
+        // When user looks to their right, nose moves right -> negative yaw
+        val turnExcursion = if (isLeft) deltaYaw else -deltaYaw
         val targetYaw = config.headYawThresholdDegrees
-        // Sign convention from MediaPipe transformation matrix (column-major, row-major decomposition):
-        // headPose.yaw > 0 → user's nose points to THEIR left (viewer's right in mirrored preview)
-        // The bitmap is already horizontally flipped by CameraPreviewManager so the landmark axes
-        // are NOT mirrored — yaw positive = user turns LEFT from their own perspective.
-        // TURN_LEFT challenge = user turns their face to the left → yaw positive
-        // TURN_RIGHT challenge = user turns their face to the right → yaw negative → we negate
-        val yaw = if (isLeft) headPose.yaw else -headPose.yaw
+        val requiredHold = 100L
 
-        if (yaw >= targetYaw) {
-            if (!headTurnPeakReached) {
-                headTurnPeakReached = true
-                headTurnPeakHoldStartMs = 0L  // will be set on next frame
-            }
-        }
-
-        val progress = (yaw / targetYaw).coerceIn(0f, 1.0f)
-
-        if (headTurnPeakReached) {
-            // Require a brief hold at the peak angle (≥ 150ms) to avoid completing on a transient
-            // overshoot caused by quantization noise in the matrix decomposition
+        if (turnExcursion >= targetYaw) {
             if (headTurnPeakHoldStartMs == 0L) {
-                headTurnPeakHoldStartMs = System.currentTimeMillis()
+                headTurnPeakHoldStartMs = timestampMs
             }
-            val holdMs = System.currentTimeMillis() - headTurnPeakHoldStartMs
-            return if (holdMs >= 150L) {
-                Pair(true, 1.0f)
-            } else {
-                Pair(false, 0.95f)  // Nearly complete — display ring almost full
+            val holdMs = timestampMs - headTurnPeakHoldStartMs
+            val progress = (0.6f + (holdMs.toFloat() / requiredHold) * 0.4f).coerceAtMost(1.0f)
+            if (holdMs >= requiredHold) {
+                return Pair(true, 1.0f)
             }
+            return Pair(false, progress)
+        } else {
+            headTurnPeakHoldStartMs = 0L
+            val progress = (turnExcursion / targetYaw).coerceIn(0f, 0.6f)
+            return Pair(false, progress)
         }
-        return Pair(false, progress)
     }
 
-    private fun evaluateHeadNod(headPose: HeadPose): Pair<Boolean, Float> {
-        val targetPitch = config.headPitchThresholdDegrees
-        // MediaPipe pitch convention: positive = looking DOWN (chin toward chest)
-        // A nod motion: chin drops (pitch rises) then returns to neutral (abs(pitch) < returnThresh)
-        //
-        // We also handle the case where pitch is NEGATIVE (head tilted back) before the nod:
-        // the user may start slightly looking up. We only require the DOWNWARD phase then return.
+    /**
+     * Head nod detection relative to alignment baseline pitch.
+     * Excursion of >= 10° from baseline, followed by return within 5° of baseline within 1.5s.
+     */
+    private fun evaluateHeadNod(headPose: HeadPose, timestampMs: Long): Pair<Boolean, Float> {
+        val deltaPitch = headPose.pitch - baselinePitch
+        val targetExcursion = config.headPitchThresholdDegrees
+        val returnTolerance = 5.0f
 
         return when (nodPhase) {
             NodPhase.WAITING_FOR_DOWN -> {
-                // Track the maximum downward angle seen so far
-                if (headPose.pitch > nodPeakPitch) nodPeakPitch = headPose.pitch
+                // MediaPipe pitch: positive = looking down
+                if (deltaPitch > nodPeakPitch) nodPeakPitch = deltaPitch
 
-                if (nodPeakPitch >= targetPitch) {
-                    // Reached the required downward angle
+                if (nodPeakPitch >= targetExcursion) {
                     nodPhase = NodPhase.WAITING_FOR_RETURN
+                    nodStartMs = timestampMs
                     Pair(false, 0.65f)
                 } else {
-                    val progress = (nodPeakPitch / targetPitch).coerceIn(0f, 0.6f)
+                    val progress = (nodPeakPitch / targetExcursion).coerceIn(0f, 0.6f)
                     Pair(false, progress)
                 }
             }
 
             NodPhase.WAITING_FOR_RETURN -> {
-                // Keep displaying progress while user returns to neutral
-                val returnProgress = (0.65f + (1f - (headPose.pitch / targetPitch).coerceIn(0f, 1f)) * 0.35f).coerceIn(0.65f, 1f)
-                // Return threshold: abs(pitch) < 12° covers natural return without requiring perfect center
-                if (abs(headPose.pitch) < 12f) {
+                if (timestampMs - nodStartMs > 1500L) {
+                    // Timed out waiting for return, reset
+                    nodPhase = NodPhase.WAITING_FOR_DOWN
+                    nodPeakPitch = 0f
+                    Pair(false, 0f)
+                } else if (abs(deltaPitch) <= returnTolerance) {
                     nodPhase = NodPhase.COMPLETE
                     Pair(true, 1.0f)
                 } else {
+                    val returnProgress = (0.65f + (1f - (deltaPitch / targetExcursion).coerceIn(0f, 1f)) * 0.35f).coerceIn(0.65f, 0.99f)
                     Pair(false, returnProgress)
                 }
             }
 
             NodPhase.COMPLETE -> Pair(true, 1.0f)
         }
+    }
+
+    fun getDebugStatus(): String {
+        return "Challenge: ${currentChallenge?.name ?: "None"}, Nod: $nodPhase (peak: ${"%.1f".format(nodPeakPitch)}°), Baseline: P=${"%.1f".format(baselinePitch)}° Y=${"%.1f".format(baselineYaw)}°"
     }
 }

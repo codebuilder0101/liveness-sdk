@@ -78,18 +78,20 @@ class CameraPreviewManager(
             if (rotationDegrees != 0) {
                 matrix.postRotate(rotationDegrees.toFloat())
             }
-            // Front camera mirror compensation (flip horizontally)
-            matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
-
-            val rotatedBitmap = Bitmap.createBitmap(
-                bitmap,
-                0,
-                0,
-                bitmap.width,
-                bitmap.height,
-                matrix,
-                true
-            )
+            // Keep frame unmirrored for MediaPipe (PreviewView handles preview display mirroring)
+            val rotatedBitmap = if (rotationDegrees != 0) {
+                Bitmap.createBitmap(
+                    bitmap,
+                    0,
+                    0,
+                    bitmap.width,
+                    bitmap.height,
+                    matrix,
+                    true
+                )
+            } else {
+                bitmap
+            }
 
             onFrameAvailable(rotatedBitmap)
         } catch (e: Exception) {

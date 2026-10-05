@@ -23,35 +23,28 @@ object HeadPoseCalculator {
             return HeadPose(0f, 0f, 0f)
         }
 
-        // Extract rotation components from 4x4 matrix
-        // m00, m01, m02, m03
-        // m10, m11, m12, m13
-        // m20, m21, m22, m23
-        // m30, m31, m32, m33
-        val m00 = matrix[0]
-        val m10 = matrix[4]
-        val m11 = matrix[5]
-        val m12 = matrix[6]
-        val m20 = matrix[8]
-        val m21 = matrix[9]
-        val m22 = matrix[10]
+        // MediaPipe facialTransformationMatrixes produces a flat 16-float column-major 4x4 matrix:
+        // R[row][col] = matrix[col * 4 + row]
+        // Normalize out scale vectors since matrix is metric
+        fun r(row: Int, col: Int) = matrix[col * 4 + row]
 
-        val sy = sqrt((m00 * m00 + m10 * m10).toDouble()).toFloat()
-        val isSingular = sy < 1e-6
+        val sx = sqrt((r(0, 0) * r(0, 0) + r(1, 0) * r(1, 0) + r(2, 0) * r(2, 0)).toDouble()).toFloat()
+        val sy = sqrt((r(0, 1) * r(0, 1) + r(1, 1) * r(1, 1) + r(2, 1) * r(2, 1)).toDouble()).toFloat()
+        val sz = sqrt((r(0, 2) * r(0, 2) + r(1, 2) * r(1, 2) + r(2, 2) * r(2, 2)).toDouble()).toFloat()
 
-        val pitch: Float
-        val yaw: Float
-        val roll: Float
-
-        if (!isSingular) {
-            pitch = Math.toDegrees(atan2(m21.toDouble(), m22.toDouble())).toFloat()
-            yaw = Math.toDegrees(atan2(-m20.toDouble(), sy.toDouble())).toFloat()
-            roll = Math.toDegrees(atan2(m10.toDouble(), m00.toDouble())).toFloat()
-        } else {
-            pitch = Math.toDegrees(atan2(-m12.toDouble(), m11.toDouble())).toFloat()
-            yaw = Math.toDegrees(atan2(-m20.toDouble(), sy.toDouble())).toFloat()
-            roll = 0f
+        if (sx < 1e-6f || sy < 1e-6f || sz < 1e-6f) {
+            return HeadPose(0f, 0f, 0f)
         }
+
+        val r00 = r(0, 0) / sx
+        val r10 = r(1, 0) / sx
+        val r20 = r(2, 0) / sx
+        val r21 = r(2, 1) / sy
+        val r22 = r(2, 2) / sz
+
+        val pitch = Math.toDegrees(atan2(r21.toDouble(), r22.toDouble())).toFloat()
+        val yaw = Math.toDegrees(atan2(-r20.toDouble(), sqrt((r00 * r00 + r10 * r10).toDouble()))).toFloat()
+        val roll = Math.toDegrees(atan2(r10.toDouble(), r00.toDouble())).toFloat()
 
         return HeadPose(pitch = pitch, yaw = yaw, roll = roll)
     }

@@ -105,6 +105,10 @@ class LivenessEngine(
             spoofScoreSmoother.reset()
             bestFaceBitmap = null
             stableAlignmentFrames = 0
+            alignmentPitchSamples.clear()
+            alignmentYawSamples.clear()
+            lastFrameTimestampMs = 0L
+            faceLostStartTimeMs = 0L
             isSessionActive = true
 
             // Generate challenge sequence
@@ -132,6 +136,13 @@ class LivenessEngine(
         landmarkerHelper?.detectAsync(bitmap)
     }
 
+    private var lastFrameTimestampMs = 0L
+    private var faceLostStartTimeMs = 0L
+    private val alignmentPitchSamples = mutableListOf<Float>()
+    private val alignmentYawSamples = mutableListOf<Float>()
+
+    var onDebugInfoUpdate: ((String) -> Unit)? = null
+
     override fun onLandmarksDetected(
         result: FaceLandmarkerResult,
         inputBitmap: Bitmap,
@@ -143,29 +154,44 @@ class LivenessEngine(
         synchronized(stateLock) {
             if (!isSessionActive) return
 
+            // Compute frame timing & FPS
+            val frameDeltaMs = if (lastFrameTimestampMs > 0L) timestampMs - lastFrameTimestampMs else 33L
+            lastFrameTimestampMs = timestampMs
+            val fps = if (frameDeltaMs > 0L) 1000f / frameDeltaMs else 0f
+
             // 1. Check for multiple faces
             if (result.faceLandmarks().size > 1) {
                 finishWithError(LivenessException.MultipleFacesDetected())
                 return
             }
 
-            // 2. Check if face is detected
-            if (faceBoundingBox == null || result.faceLandmarks().isEmpty()) {
+            // 2. Face tracking validation
+            val isFaceTracked = faceBoundingBox != null && result.faceLandmarks().isNotEmpty()
+            if (!isFaceTracked) {
                 if (currentState is LivenessState.PerformingChallenge) {
-                    updateState(
-                        LivenessState.FaceAlignment(
-                            message = "Face lost. Please stay in the oval",
-                            isFaceDetected = false,
-                            isCentered = false,
-                            isAppropriateDistance = false
+                    if (faceLostStartTimeMs == 0L) {
+                        faceLostStartTimeMs = timestampMs
+                    } else if (timestampMs - faceLostStartTimeMs > 500L) {
+                        // Only interrupt challenge if face has been lost continuously for > 500ms
+                        updateState(
+                            LivenessState.FaceAlignment(
+                                message = "Face lost. Please stay in the oval",
+                                isFaceDetected = false,
+                                isCentered = false,
+                                isAppropriateDistance = false
+                            )
                         )
-                    )
+                    }
                 }
                 return
+            } else {
+                faceLostStartTimeMs = 0L
             }
 
+            val validFaceBox = faceBoundingBox!!
+
             // 3. Evaluate Lighting / Luminance
-            val avgLuminance = calculateLuminance(inputBitmap, faceBoundingBox)
+            val avgLuminance = calculateLuminance(inputBitmap, validFaceBox)
             if (avgLuminance < config.minLuminanceThreshold) {
                 if (currentState is LivenessState.FaceAlignment) {
                     updateState(
@@ -180,22 +206,56 @@ class LivenessEngine(
                 return
             }
 
-            // 4. Evaluate Face Alignment & Positioning
-            val isAligned = verifyAlignment(faceBoundingBox, inputBitmap.width, inputBitmap.height, headPose)
+            // 4. Concurrently run Passive Anti-Spoofing on background thread
+            dispatchPassiveInference(inputBitmap, validFaceBox, headPose)
 
-            // 5. Concurrently run Multi-Scale Passive Anti-Spoofing on a background thread
-            dispatchPassiveInference(inputBitmap, faceBoundingBox, headPose)
+            // 5. Per-frame debug logging (Step 0)
+            if (config.enableDebugLogging || config.enableDebugOverlay) {
+                val jaw = blendshapes["jawOpen"] ?: 0f
+                val sL = blendshapes["mouthSmileLeft"] ?: 0f
+                val sR = blendshapes["mouthSmileRight"] ?: 0f
+                val bL = blendshapes["eyeBlinkLeft"] ?: 0f
+                val bR = blendshapes["eyeBlinkRight"] ?: 0f
+                val dP = headPose.pitch - challengeEvaluator.getBaselinePitch()
+                val dY = headPose.yaw - challengeEvaluator.getBaselineYaw()
+
+                if (config.enableDebugLogging) {
+                    android.util.Log.d(
+                        "SolistraLiveness",
+                        "FPS: ${"%.1f".format(fps)} (dt:${frameDeltaMs}ms) | Jaw:${"%.2f".format(jaw)} Smile:[${"%.2f".format(sL)},${"%.2f".format(sR)}] Blink:[${"%.2f".format(bL)},${"%.2f".format(bR)}] | Pose: P=${"%.1f".format(headPose.pitch)}°(Δ=${"%.1f".format(dP)}°) Y=${"%.1f".format(headPose.yaw)}°(Δ=${"%.1f".format(dY)}°) | ${challengeEvaluator.getDebugStatus()}"
+                    )
+                }
+
+                if (config.enableDebugOverlay) {
+                    val debugText = "FPS: ${"%.1f".format(fps)} (${frameDeltaMs}ms)\n" +
+                            "Jaw: ${"%.2f".format(jaw)} | Smile: ${"%.2f".format(maxOf(sL, sR))} (L=${"%.2f".format(sL)} R=${"%.2f".format(sR)})\n" +
+                            "Blink: L=${"%.2f".format(bL)} R=${"%.2f".format(bR)}\n" +
+                            "Pitch: ${"%.1f".format(headPose.pitch)}° (Δ=${"%.1f".format(dP)}°) Base: ${"%.1f".format(challengeEvaluator.getBaselinePitch())}°\n" +
+                            "Yaw: ${"%.1f".format(headPose.yaw)}° (Δ=${"%.1f".format(dY)}°) Base: ${"%.1f".format(challengeEvaluator.getBaselineYaw())}°\n" +
+                            "${challengeEvaluator.getDebugStatus()}"
+                    mainHandler.post { onDebugInfoUpdate?.invoke(debugText) }
+                }
+            }
 
             // 6. State Machine progression
             when (val state = currentState) {
                 is LivenessState.FaceAlignment -> {
+                    val isAligned = verifyAlignment(validFaceBox, inputBitmap.width, inputBitmap.height, headPose)
                     if (isAligned) {
+                        alignmentPitchSamples.add(headPose.pitch)
+                        alignmentYawSamples.add(headPose.yaw)
                         stableAlignmentFrames++
-                        if (stableAlignmentFrames > 6) { // Require stable position for ~180ms
+                        if (stableAlignmentFrames >= 6) { // Stable for ~180ms
+                            // Compute baseline neutral pitch & yaw from alignment frames
+                            val baselinePitch = alignmentPitchSamples.average().toFloat()
+                            val baselineYaw = alignmentYawSamples.average().toFloat()
+                            challengeEvaluator.setBaseline(baselinePitch, baselineYaw)
                             startNextChallenge(timestampMs)
                         }
                     } else {
                         stableAlignmentFrames = 0
+                        alignmentPitchSamples.clear()
+                        alignmentYawSamples.clear()
                     }
                 }
 

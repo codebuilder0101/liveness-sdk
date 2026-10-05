@@ -128,11 +128,21 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
     }
 
     private fun initializeCameraAndEngine() {
-        engine = LivenessEngine(
+        val eng = LivenessEngine(
             context = applicationContext,
             config = config,
             callback = this
         )
+        engine = eng
+
+        if (config.enableDebugOverlay) {
+            binding.tvDebugOverlay.visibility = View.VISIBLE
+            eng.onDebugInfoUpdate = { debugInfo ->
+                binding.tvDebugOverlay.text = debugInfo
+            }
+        } else {
+            binding.tvDebugOverlay.visibility = View.GONE
+        }
 
         cameraManager = CameraPreviewManager(
             context = this,

@@ -54,11 +54,21 @@ data class LivenessConfig(
     /**
      * Thresholds for active blendshapes
      */
-    val eyeBlinkThreshold: Float = 0.60f,
+    val eyeBlinkThreshold: Float = 0.50f,
     val smileThreshold: Float = 0.35f,
-    val mouthOpenThreshold: Float = 0.55f,
-    val headYawThresholdDegrees: Float = 15.0f,
-    val headPitchThresholdDegrees: Float = 15.0f
+    val mouthOpenThreshold: Float = 0.40f,
+    val headYawThresholdDegrees: Float = 12.0f,
+    val headPitchThresholdDegrees: Float = 10.0f,
+
+    /**
+     * Enable real-time on-screen diagnostics overlay for blendshapes, pose, and FPS.
+     */
+    val enableDebugOverlay: Boolean = false,
+
+    /**
+     * Enable detailed Logcat debug stream per frame.
+     */
+    val enableDebugLogging: Boolean = true
 ) : Parcelable {
 
     companion object {

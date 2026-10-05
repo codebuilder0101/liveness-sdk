@@ -14,6 +14,7 @@ public struct LivenessConfig {
     public var mouthOpenThreshold: Float
     public var headYawThresholdDegrees: Float
     public var headPitchThresholdDegrees: Float
+    public var enableDebugLogging: Bool
 
     public init(
         challenges: [LivenessChallenge] = [.blink, .smile],
@@ -22,11 +23,12 @@ public struct LivenessConfig {
         passiveSpoofThreshold: Float = 0.75,
         passiveFrameSampleSize: Int = 8,
         enableScreenSecurity: Bool = true,
-        eyeBlinkThreshold: Float = 0.60,
+        eyeBlinkThreshold: Float = 0.50,
         smileThreshold: Float = 0.35,
-        mouthOpenThreshold: Float = 0.55,
-        headYawThresholdDegrees: Float = 15.0,
-        headPitchThresholdDegrees: Float = 15.0
+        mouthOpenThreshold: Float = 0.40,
+        headYawThresholdDegrees: Float = 12.0,
+        headPitchThresholdDegrees: Float = 10.0,
+        enableDebugLogging: Bool = true
     ) {
         self.challenges = challenges
         self.randomChallengeCount = randomChallengeCount
@@ -39,6 +41,7 @@ public struct LivenessConfig {
         self.mouthOpenThreshold = mouthOpenThreshold
         self.headYawThresholdDegrees = headYawThresholdDegrees
         self.headPitchThresholdDegrees = headPitchThresholdDegrees
+        self.enableDebugLogging = enableDebugLogging
     }
 
     public static var `default`: LivenessConfig {
