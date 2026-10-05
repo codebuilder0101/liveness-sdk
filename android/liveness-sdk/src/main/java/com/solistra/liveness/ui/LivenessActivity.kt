@@ -215,6 +215,15 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
                 binding.overlayView.setProgress(state.progress)
             }
 
+            is LivenessState.InterChallenge -> {
+                binding.tvStepIndicator.visibility = View.VISIBLE
+                binding.tvStepIndicator.text = "CHALLENGE ${state.completedIndex + 1} OF ${state.totalChallenges} COMPLETED"
+                binding.tvPrompt.text = state.message
+                binding.timeoutProgressBar.visibility = View.INVISIBLE
+                binding.overlayView.setGuideColor(Color.parseColor("#00E676")) // Success Green flash
+                binding.overlayView.setProgress(1f)
+            }
+
             is LivenessState.EvaluatingPassive -> {
                 binding.tvStepIndicator.visibility = View.GONE
                 binding.tvPrompt.text = "Analyzing security markers..."

@@ -22,6 +22,14 @@ sealed class LivenessState {
         val remainingSeconds: Float
     ) : LivenessState()
 
+    data class InterChallenge(
+        val message: String = "Look straight at the camera",
+        val completedChallenge: LivenessChallenge,
+        val nextChallenge: LivenessChallenge,
+        val completedIndex: Int,
+        val totalChallenges: Int
+    ) : LivenessState()
+
     data class EvaluatingPassive(
         val progress: Float
     ) : LivenessState()

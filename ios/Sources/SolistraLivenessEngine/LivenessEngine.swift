@@ -26,6 +26,12 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
     private var isPassiveInferencing = false
     private var bestFaceImage: UIImage?
     private var stableAlignmentFrames = 0
+    private var alignmentPitchSamples: [Float] = []
+    private var alignmentYawSamples: [Float] = []
+    private var interChallengeStartTime: TimeInterval = 0
+    private var interChallengeCenteredFrames = 0
+    private var interChallengePitchSamples: [Float] = []
+    private var interChallengeYawSamples: [Float] = []
 
     public init(config: LivenessConfig = .default) {
         self.config = config
@@ -49,6 +55,12 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
             self.spoofSmoother.reset()
             self.bestFaceImage = nil
             self.stableAlignmentFrames = 0
+            self.alignmentPitchSamples.removeAll()
+            self.alignmentYawSamples.removeAll()
+            self.interChallengeStartTime = 0
+            self.interChallengeCenteredFrames = 0
+            self.interChallengePitchSamples.removeAll()
+            self.interChallengeYawSamples.removeAll()
             self.isPassiveInferencing = false
 
             if !self.config.challenges.isEmpty {
@@ -109,12 +121,19 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
             case .faceAlignment:
                 let isCentered = abs(headPose.yaw) < 18.0 && abs(headPose.pitch) < 18.0
                 if isCentered {
+                    self.alignmentPitchSamples.append(headPose.pitch)
+                    self.alignmentYawSamples.append(headPose.yaw)
                     self.stableAlignmentFrames += 1
                     if self.stableAlignmentFrames > 6 {
+                        let basePitch = self.alignmentPitchSamples.reduce(0, +) / Float(self.alignmentPitchSamples.count)
+                        let baseYaw = self.alignmentYawSamples.reduce(0, +) / Float(self.alignmentYawSamples.count)
+                        self.challengeEvaluator.setBaseline(pitch: basePitch, yaw: baseYaw)
                         self.startNextChallenge(timestamp: timestamp)
                     }
                 } else {
                     self.stableAlignmentFrames = 0
+                    self.alignmentPitchSamples.removeAll()
+                    self.alignmentYawSamples.removeAll()
                 }
 
             case .performingChallenge(let challenge, _, _, _, _):
@@ -140,7 +159,18 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
                     self.completedChallenges.append(challenge)
                     self.currentChallengeIndex += 1
                     if self.currentChallengeIndex < self.activeChallenges.count {
-                        self.startNextChallenge(timestamp: timestamp)
+                        let next = self.activeChallenges[self.currentChallengeIndex]
+                        self.interChallengeStartTime = timestamp
+                        self.interChallengeCenteredFrames = 0
+                        self.interChallengePitchSamples.removeAll()
+                        self.interChallengeYawSamples.removeAll()
+                        self.updateState(.interChallenge(
+                            message: "Look straight at the camera",
+                            completedChallenge: challenge,
+                            nextChallenge: next,
+                            completedIndex: self.currentChallengeIndex - 1,
+                            totalChallenges: self.activeChallenges.count
+                        ))
                     } else {
                         self.evaluateFinalLiveness()
                     }
@@ -154,6 +184,29 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
                     ))
                 }
 
+            case .interChallenge:
+                let deltaPitch = headPose.pitch - self.challengeEvaluator.getBaselinePitch()
+                let deltaYaw = headPose.yaw - self.challengeEvaluator.getBaselineYaw()
+                let isCentered = abs(deltaYaw) <= 7.0 && abs(deltaPitch) <= 7.0
+                let elapsed = timestamp - self.interChallengeStartTime
+
+                if isCentered {
+                    self.interChallengeCenteredFrames += 1
+                    self.interChallengePitchSamples.append(headPose.pitch)
+                    self.interChallengeYawSamples.append(headPose.yaw)
+                } else {
+                    self.interChallengeCenteredFrames = 0
+                }
+
+                if (elapsed >= 0.35 && self.interChallengeCenteredFrames >= 4) || elapsed >= 2.5 {
+                    if !self.interChallengePitchSamples.isEmpty && !self.interChallengeYawSamples.isEmpty {
+                        let refinedPitch = self.interChallengePitchSamples.reduce(0, +) / Float(self.interChallengePitchSamples.count)
+                        let refinedYaw = self.interChallengeYawSamples.reduce(0, +) / Float(self.interChallengeYawSamples.count)
+                        self.challengeEvaluator.setBaseline(pitch: refinedPitch, yaw: refinedYaw)
+                    }
+                    self.startNextChallenge(timestamp: timestamp)
+                }
+
             default:
                 break
             }
@@ -162,6 +215,14 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
 
     private func runPassiveInference(image: UIImage, faceBbox: CGRect, headPose: HeadPoseAngles) {
         guard !isPassiveInferencing else { return }
+
+        // Gating: only run passive anti-spoof on near-frontal frames
+        let deltaYaw = headPose.yaw - challengeEvaluator.getBaselineYaw()
+        let deltaPitch = headPose.pitch - challengeEvaluator.getBaselinePitch()
+        if abs(deltaYaw) > 10.0 || abs(deltaPitch) > 10.0 {
+            return
+        }
+
         isPassiveInferencing = true
 
         guard let crop27 = MultiScaleCropper.cropFaceWithScale(image: image, faceBbox: faceBbox, scaleFactor: 2.7),
@@ -176,7 +237,7 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
 
         spoofSmoother.addSample(realConfidence: combinedReal)
 
-        if abs(headPose.yaw) < 8.0 && abs(headPose.pitch) < 8.0 && combinedReal > 0.8 {
+        if abs(deltaYaw) < 6.0 && abs(deltaPitch) < 6.0 && combinedReal > 0.8 {
             bestFaceImage = image
         }
 

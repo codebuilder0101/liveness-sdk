@@ -171,6 +171,14 @@ public final class LivenessViewController: UIViewController, LivenessDelegate, C
             overlayView.setBorderColor(UIColor(red: 0.0, green: 0.9, blue: 1.0, alpha: 1.0))
             overlayView.setProgress(progress)
 
+        case .interChallenge(let message, _, _, let idx, let total):
+            stepLabel.isHidden = false
+            stepLabel.text = "CHALLENGE \(idx + 1) OF \(total) COMPLETED"
+            promptLabel.text = message
+            timeoutProgressView.isHidden = true
+            overlayView.setBorderColor(UIColor(red: 0.0, green: 0.9, blue: 0.4, alpha: 1.0))
+            overlayView.setProgress(1.0)
+
         case .evaluatingPassive:
             stepLabel.isHidden = true
             promptLabel.text = "Analyzing security markers..."

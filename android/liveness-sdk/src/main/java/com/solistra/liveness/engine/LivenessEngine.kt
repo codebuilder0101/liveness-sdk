@@ -107,6 +107,10 @@ class LivenessEngine(
             stableAlignmentFrames = 0
             alignmentPitchSamples.clear()
             alignmentYawSamples.clear()
+            interChallengeStartTimeMs = 0L
+            interChallengeCenteredFrames = 0
+            interChallengePitchSamples.clear()
+            interChallengeYawSamples.clear()
             lastFrameTimestampMs = 0L
             faceLostStartTimeMs = 0L
             isSessionActive = true
@@ -140,6 +144,10 @@ class LivenessEngine(
     private var faceLostStartTimeMs = 0L
     private val alignmentPitchSamples = mutableListOf<Float>()
     private val alignmentYawSamples = mutableListOf<Float>()
+    private var interChallengeStartTimeMs = 0L
+    private var interChallengeCenteredFrames = 0
+    private val interChallengePitchSamples = mutableListOf<Float>()
+    private val interChallengeYawSamples = mutableListOf<Float>()
 
     var onDebugInfoUpdate: ((String) -> Unit)? = null
 
@@ -279,7 +287,20 @@ class LivenessEngine(
                         currentChallengeIndex++
 
                         if (currentChallengeIndex < activeChallenges.size) {
-                            startNextChallenge(timestampMs)
+                            val next = activeChallenges[currentChallengeIndex]
+                            interChallengeStartTimeMs = timestampMs
+                            interChallengeCenteredFrames = 0
+                            interChallengePitchSamples.clear()
+                            interChallengeYawSamples.clear()
+                            updateState(
+                                LivenessState.InterChallenge(
+                                    message = "Look straight at the camera",
+                                    completedChallenge = state.challenge,
+                                    nextChallenge = next,
+                                    completedIndex = currentChallengeIndex - 1,
+                                    totalChallenges = activeChallenges.size
+                                )
+                            )
                         } else {
                             // All active challenges completed, verify passive anti-spoof
                             evaluateFinalLiveness()
@@ -294,6 +315,34 @@ class LivenessEngine(
                                 remainingSeconds = remainingSeconds
                             )
                         )
+                    }
+                }
+
+                is LivenessState.InterChallenge -> {
+                    val deltaPitch = headPose.pitch - challengeEvaluator.getBaselinePitch()
+                    val deltaYaw = headPose.yaw - challengeEvaluator.getBaselineYaw()
+                    val isCentered = abs(deltaYaw) <= 7f && abs(deltaPitch) <= 7f
+                    val elapsedMs = timestampMs - interChallengeStartTimeMs
+
+                    if (isCentered) {
+                        interChallengeCenteredFrames++
+                        interChallengePitchSamples.add(headPose.pitch)
+                        interChallengeYawSamples.add(headPose.yaw)
+                    } else {
+                        interChallengeCenteredFrames = 0
+                    }
+
+                    // Advance to next challenge when:
+                    // 1. Minimum pause of 350ms elapsed (giving user visual confirmation of completion)
+                    // 2. User has returned to center (held centered for >= 4 frames ~120ms)
+                    // Or if maximum timeout of 2.5s elapsed in transition
+                    if ((elapsedMs >= 350L && interChallengeCenteredFrames >= 4) || elapsedMs >= 2500L) {
+                        if (interChallengePitchSamples.isNotEmpty() && interChallengeYawSamples.isNotEmpty()) {
+                            val refinedPitch = interChallengePitchSamples.average().toFloat()
+                            val refinedYaw = interChallengeYawSamples.average().toFloat()
+                            challengeEvaluator.setBaseline(refinedPitch, refinedYaw)
+                        }
+                        startNextChallenge(timestampMs)
                     }
                 }
 
@@ -371,6 +420,15 @@ class LivenessEngine(
     private fun dispatchPassiveInference(fullBitmap: Bitmap, faceBbox: RectF, headPose: HeadPose) {
         val classifier = miniFASNetClassifier ?: return
 
+        // Anti-Spoofing Model (MiniFASNet) is trained on frontal face crops.
+        // Gating: Only sample frames when face is near-frontal (|deltaYaw| <= 10°, |deltaPitch| <= 10°).
+        // Profile/angled frames (during head turns) distort context crops and trigger false spoof flags.
+        val deltaYaw = headPose.yaw - challengeEvaluator.getBaselineYaw()
+        val deltaPitch = headPose.pitch - challengeEvaluator.getBaselinePitch()
+        if (abs(deltaYaw) > 10f || abs(deltaPitch) > 10f) {
+            return
+        }
+
         // Drop frame if previous passive inference is still executing to avoid pipeline lag
         if (!isPassiveInferencing.compareAndSet(false, true)) {
             return
@@ -393,7 +451,7 @@ class LivenessEngine(
                 spoofScoreSmoother.addSample(result.realConfidence)
 
                 synchronized(stateLock) {
-                    if (abs(headPose.yaw) < 8f && abs(headPose.pitch) < 8f && result.realConfidence > 0.7f) {
+                    if (abs(deltaYaw) < 6f && abs(deltaPitch) < 6f && result.realConfidence > 0.7f) {
                         bestFaceBitmap = frameCopy.copy(Bitmap.Config.ARGB_8888, false)
                     }
                 }
