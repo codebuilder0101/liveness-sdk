@@ -107,10 +107,10 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
             // State Machine
             switch self.currentState {
             case .faceAlignment:
-                let isCentered = abs(headPose.yaw) < 12.0 && abs(headPose.pitch) < 12.0
+                let isCentered = abs(headPose.yaw) < 18.0 && abs(headPose.pitch) < 18.0
                 if isCentered {
                     self.stableAlignmentFrames += 1
-                    if self.stableAlignmentFrames > 8 {
+                    if self.stableAlignmentFrames > 6 {
                         self.startNextChallenge(timestamp: timestamp)
                     }
                 } else {

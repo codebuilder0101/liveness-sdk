@@ -24,7 +24,7 @@ data class LivenessConfig(
     /**
      * Maximum time in seconds allocated for each individual challenge before timeout.
      */
-    val challengeTimeoutSeconds: Float = 6.0f,
+    val challengeTimeoutSeconds: Float = 8.0f,
 
     /**
      * Required minimum confidence threshold for passive anti-spoofing (0.0 to 1.0).
@@ -57,8 +57,8 @@ data class LivenessConfig(
     val eyeBlinkThreshold: Float = 0.60f,
     val smileThreshold: Float = 0.35f,
     val mouthOpenThreshold: Float = 0.55f,
-    val headYawThresholdDegrees: Float = 18.0f,
-    val headPitchThresholdDegrees: Float = 18.0f
+    val headYawThresholdDegrees: Float = 15.0f,
+    val headPitchThresholdDegrees: Float = 15.0f
 ) : Parcelable {
 
     companion object {

@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                 binding.chipNodHead.isChecked = false
                 binding.chipOpenMouth.isChecked = false
 
-                binding.sliderTimeout.value = 6.0f
+                binding.sliderTimeout.value = 8.0f
                 binding.sliderSpoofThreshold.value = 75f
                 binding.sliderSampleSize.value = 8f
                 binding.switchScreenSecurity.isChecked = true

@@ -49,10 +49,25 @@ public final class ChallengeEvaluator {
 
     private var hasClosedEyes = false
     private var eyeClosedTimestamp: TimeInterval = 0
+    // Rolling window for blink noise smoothing (last 4 frames)
+    private var blinkScoreWindow: [Float] = []
+
+    // ── Smile state ───────────────────────────────────────────────────
     private var smileHoldStartTime: TimeInterval = 0
+    // Rolling window for smile noise smoothing (last 5 frames)
+    private var smileScoreWindow: [Float] = []
+
+    // ── Open Mouth state ───────────────────────────────────────────
     private var mouthOpenHoldStartTime: TimeInterval = 0
+
+    // ── Head Turn state ───────────────────────────────────────────
     private var headTurnPeakReached = false
-    private var headNodPeakReached = false
+    private var headTurnPeakTimestamp: TimeInterval = 0
+
+    // ── Head Nod state (FSM) ─────────────────────────────────────
+    private enum NodPhase { case waitingForDown, waitingForReturn, complete }
+    private var nodPhase: NodPhase = .waitingForDown
+    private var nodPeakPitch: Float = 0
 
     public init(config: LivenessConfig) {
         self.config = config
@@ -67,10 +82,14 @@ public final class ChallengeEvaluator {
     private func resetState() {
         hasClosedEyes = false
         eyeClosedTimestamp = 0
+        blinkScoreWindow.removeAll()
         smileHoldStartTime = 0
+        smileScoreWindow.removeAll()
         mouthOpenHoldStartTime = 0
         headTurnPeakReached = false
-        headNodPeakReached = false
+        headTurnPeakTimestamp = 0
+        nodPhase = .waitingForDown
+        nodPeakPitch = 0
     }
 
     public func evaluateFrame(
@@ -101,8 +120,18 @@ public final class ChallengeEvaluator {
     private func evaluateBlink(blendshapes: [String: Float], timestamp: TimeInterval) -> (Bool, Float) {
         let blinkLeft = blendshapes["eyeBlinkLeft"] ?? 0
         let blinkRight = blendshapes["eyeBlinkRight"] ?? 0
-        let isEyesClosed = blinkLeft >= config.eyeBlinkThreshold && blinkRight >= config.eyeBlinkThreshold
-        let isEyesOpen = blinkLeft < 0.25 && blinkRight < 0.25
+
+        // Smooth blink scores over a rolling window (last 4 frames) to filter noise
+        let rawAvg = (blinkLeft + blinkRight) / 2.0
+        blinkScoreWindow.append(rawAvg)
+        if blinkScoreWindow.count > 4 { blinkScoreWindow.removeFirst() }
+        let smoothedBlink = blinkScoreWindow.reduce(0, +) / Float(blinkScoreWindow.count)
+
+        // Use 85% of configured threshold on smoothed value for robustness
+        let effectiveThreshold = config.eyeBlinkThreshold * 0.85
+        let isEyesClosed = smoothedBlink >= effectiveThreshold
+        // Wider open-eye band: 0.30 covers heavy-lidded users
+        let isEyesOpen = blinkLeft < 0.30 && blinkRight < 0.30
 
         if !hasClosedEyes {
             if isEyesClosed {
@@ -110,12 +139,19 @@ public final class ChallengeEvaluator {
                 eyeClosedTimestamp = timestamp
                 return (false, 0.5)
             }
-            let avg = (blinkLeft + blinkRight) / 2.0
-            return (false, min(0.4, (avg / config.eyeBlinkThreshold) * 0.4))
+            let progress = min(0.45, smoothedBlink / effectiveThreshold)
+            return (false, progress)
         } else {
             let duration = timestamp - eyeClosedTimestamp
-            if isEyesOpen && duration >= 0.08 && duration <= 1.5 {
-                return (true, 1.0)
+            if isEyesOpen {
+                if duration >= 0.05 && duration <= 2.5 {
+                    return (true, 1.0)
+                } else if duration > 2.5 {
+                    // Eyes held shut too long — reset
+                    hasClosedEyes = false
+                    blinkScoreWindow.removeAll()
+                    return (false, 0)
+                }
             }
             return (false, 0.75)
         }
@@ -124,22 +160,39 @@ public final class ChallengeEvaluator {
     private func evaluateSmile(blendshapes: [String: Float], timestamp: TimeInterval) -> (Bool, Float) {
         let smileLeft = blendshapes["mouthSmileLeft"] ?? 0
         let smileRight = blendshapes["mouthSmileRight"] ?? 0
-        let avgSmile = (smileLeft + smileRight) / 2.0
+        // Cheek raises correlate with genuine smiles and compensate for asymmetry
+        let cheekLeft = blendshapes["cheekSquintLeft"] ?? 0
+        let cheekRight = blendshapes["cheekSquintRight"] ?? 0
 
-        if avgSmile >= config.smileThreshold {
+        // Use stronger side to avoid failing due to natural facial asymmetry
+        let strongerSideSmile = max(smileLeft, smileRight)
+        let avgCheek = (cheekLeft + cheekRight) / 2.0
+        let compositeScore = strongerSideSmile * 0.70 + avgCheek * 0.30
+
+        // Smooth over last 5 frames
+        smileScoreWindow.append(compositeScore)
+        if smileScoreWindow.count > 5 { smileScoreWindow.removeFirst() }
+        let smoothedScore = smileScoreWindow.reduce(0, +) / Float(smileScoreWindow.count)
+
+        let effectiveThreshold = config.smileThreshold * 0.80
+
+        if smoothedScore >= effectiveThreshold {
             if smileHoldStartTime == 0 {
                 smileHoldStartTime = timestamp
             }
             let holdDuration = timestamp - smileHoldStartTime
-            let requiredHold: TimeInterval = 0.35
+            let requiredHold: TimeInterval = 0.25  // 250ms
             let progress = Float(min(1.0, 0.5 + (holdDuration / requiredHold) * 0.5))
             if holdDuration >= requiredHold {
                 return (true, 1.0)
             }
             return (false, progress)
         } else {
-            smileHoldStartTime = 0
-            let progress = (avgSmile / config.smileThreshold) * 0.5
+            // Hysteresis: only reset hold timer when score drops clearly below threshold
+            if smoothedScore < effectiveThreshold * 0.75 {
+                smileHoldStartTime = 0
+            }
+            let progress = (smoothedScore / effectiveThreshold) * 0.5
             return (false, max(0, min(0.5, progress)))
         }
     }
@@ -168,27 +221,50 @@ public final class ChallengeEvaluator {
         let currentYaw = isLeft ? headPose.yaw : -headPose.yaw
 
         if currentYaw >= targetYaw {
-            headTurnPeakReached = true
+            if !headTurnPeakReached {
+                headTurnPeakReached = true
+                headTurnPeakTimestamp = 0  // set on next frame
+            }
         }
 
         let progress = min(1.0, max(0.0, currentYaw / targetYaw))
         if headTurnPeakReached {
-            return (true, 1.0)
+            // Require 150ms hold at peak to avoid noise-triggered completions
+            if headTurnPeakTimestamp == 0 { headTurnPeakTimestamp = Date().timeIntervalSinceReferenceDate }
+            let holdDuration = Date().timeIntervalSinceReferenceDate - headTurnPeakTimestamp
+            if holdDuration >= 0.15 {
+                return (true, 1.0)
+            }
+            return (false, 0.95)
         }
         return (false, progress)
     }
 
     private func evaluateHeadNod(headPose: HeadPoseAngles) -> (Bool, Float) {
         let targetPitch = config.headPitchThresholdDegrees
-        if headPose.pitch >= targetPitch {
-            headNodPeakReached = true
-            return (false, 0.7)
-        }
-        // 10° return threshold (loosened from 6°) to reliably detect the head returning to neutral
-        if headNodPeakReached && abs(headPose.pitch) < 10.0 {
+        // MediaPipe pitch convention: positive = looking DOWN (chin toward chest)
+        // FSM: waitingForDown → waitingForReturn → complete
+
+        switch nodPhase {
+        case .waitingForDown:
+            if headPose.pitch > nodPeakPitch { nodPeakPitch = headPose.pitch }
+            if nodPeakPitch >= targetPitch {
+                nodPhase = .waitingForReturn
+                return (false, 0.65)
+            }
+            let progress = min(0.6, max(0.0, nodPeakPitch / targetPitch))
+            return (false, progress)
+
+        case .waitingForReturn:
+            let returnProgress = min(1.0, max(0.65, 0.65 + (1.0 - Double(headPose.pitch / targetPitch)) * 0.35))
+            if abs(headPose.pitch) < 12.0 {
+                nodPhase = .complete
+                return (true, 1.0)
+            }
+            return (false, Float(returnProgress))
+
+        case .complete:
             return (true, 1.0)
         }
-        let progress = min(0.6, max(0.0, headPose.pitch / targetPitch))
-        return (false, progress)
     }
 }

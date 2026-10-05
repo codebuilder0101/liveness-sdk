@@ -18,15 +18,15 @@ public struct LivenessConfig {
     public init(
         challenges: [LivenessChallenge] = [.blink, .smile],
         randomChallengeCount: Int = 2,
-        challengeTimeoutSeconds: Float = 4.0,
-        passiveSpoofThreshold: Float = 0.85,
+        challengeTimeoutSeconds: Float = 8.0,
+        passiveSpoofThreshold: Float = 0.75,
         passiveFrameSampleSize: Int = 8,
         enableScreenSecurity: Bool = true,
         eyeBlinkThreshold: Float = 0.60,
         smileThreshold: Float = 0.35,
         mouthOpenThreshold: Float = 0.55,
-        headYawThresholdDegrees: Float = 20.0,
-        headPitchThresholdDegrees: Float = 18.0
+        headYawThresholdDegrees: Float = 15.0,
+        headPitchThresholdDegrees: Float = 15.0
     ) {
         self.challenges = challenges
         self.randomChallengeCount = randomChallengeCount

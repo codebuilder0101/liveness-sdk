@@ -191,7 +191,7 @@ class LivenessEngine(
                 is LivenessState.FaceAlignment -> {
                     if (isAligned) {
                         stableAlignmentFrames++
-                        if (stableAlignmentFrames > 8) { // Require stable position for ~250ms
+                        if (stableAlignmentFrames > 6) { // Require stable position for ~180ms
                             startNextChallenge(timestampMs)
                         }
                     } else {
@@ -257,7 +257,9 @@ class LivenessEngine(
                 normBottom <= (guideRect.bottom + tolerance)
 
         val isAppropriateDistance = normWidth in 0.28f..0.65f
-        val isFacingForward = abs(headPose.yaw) < 15f && abs(headPose.pitch) < 15f
+        // Allow ±18° yaw/pitch tolerance so users don't get stuck in alignment
+        // for mild head tilt/turn (natural when preparing to smile or nod)
+        val isFacingForward = abs(headPose.yaw) < 18f && abs(headPose.pitch) < 18f
 
         val isCentered = isInsideOval && isFacingForward
 
