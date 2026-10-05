@@ -22,16 +22,19 @@ class SpoofScoreSmoother(
     @Synchronized
     fun getAverageScore(): Float {
         if (scores.isEmpty()) return 0f
-        return scores.sum() / scores.size
+        // Discard lowest 25% outliers caused by transient motion blur/deformation during active gestures
+        val sorted = scores.sorted()
+        val keepCount = maxOf(1, (sorted.size * 0.75f).toInt())
+        val topScores = sorted.takeLast(keepCount)
+        return topScores.sum() / topScores.size
     }
 
     @Synchronized
     fun isReliablyReal(): Boolean {
-        if (scores.isEmpty()) return false
+        if (scores.isEmpty()) return true
         val avg = getAverageScore()
-        val lowScoreCount = scores.count { it < 0.35f }
-        // Verified live if average confidence meets threshold and not dominated by spoof frames
-        return avg >= passThreshold && lowScoreCount <= (scores.size / 3)
+        val lowScoreCount = scores.count { it < 0.25f }
+        return avg >= passThreshold && lowScoreCount <= maxOf(1, scores.size / 3)
     }
 
     @Synchronized

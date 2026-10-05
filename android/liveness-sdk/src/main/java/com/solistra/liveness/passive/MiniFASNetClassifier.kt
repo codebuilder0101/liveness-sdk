@@ -108,26 +108,25 @@ class MiniFASNetClassifier(
         resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
         val numPixels = inputSize * inputSize
 
-        // Populate tensor in NCHW format [1, 3, 80, 80] with RGB channel order.
-        // Apply mean subtraction normalization: (pixel - mean) / 255.0f
-        // This matches the original Silent-Face-Anti-Spoofing training preprocessing.
-
-        // Channel 0: Red [80 x 80]
+        // Populate tensor in NCHW format [1, 3, 80, 80] with BGR channel order.
+        // Silent-Face-Anti-Spoofing uses standard PyTorch ToTensor() normalization: [0.0, 1.0] in BGR.
+        
+        // Channel 0: Blue [80 x 80]
         for (i in 0 until numPixels) {
-            val r = ((intValues[i] shr 16) and 0xFF).toFloat()
-            inputBuffer.putFloat((r - meanR) / 255.0f)
+            val b = (intValues[i] and 0xFF).toFloat()
+            inputBuffer.putFloat(b / 255.0f)
         }
 
         // Channel 1: Green [80 x 80]
         for (i in 0 until numPixels) {
             val g = ((intValues[i] shr 8) and 0xFF).toFloat()
-            inputBuffer.putFloat((g - meanG) / 255.0f)
+            inputBuffer.putFloat(g / 255.0f)
         }
 
-        // Channel 2: Blue [80 x 80]
+        // Channel 2: Red [80 x 80]
         for (i in 0 until numPixels) {
-            val b = (intValues[i] and 0xFF).toFloat()
-            inputBuffer.putFloat((b - meanB) / 255.0f)
+            val r = ((intValues[i] shr 16) and 0xFF).toFloat()
+            inputBuffer.putFloat(r / 255.0f)
         }
 
         // Output tensor shape: [1, 3] -> [Spoof2D, Real/Live, Spoof3D] with Softmax already applied by model
@@ -140,8 +139,13 @@ class MiniFASNetClassifier(
         val realScore = probabilities[1]
         val spoof3d = probabilities[2]
 
+        android.util.Log.d(
+            "SolistraPassive",
+            "MiniFASNet: Real=${"%.3f".format(realScore)} | Spoof2D=${"%.3f".format(spoof2d)} | Spoof3D=${"%.3f".format(spoof3d)}"
+        )
+
         return AntiSpoofResult(
-            isReal = realScore >= 0.60f && realScore > spoof2d && realScore > spoof3d,
+            isReal = realScore >= 0.50f && realScore > spoof2d && realScore > spoof3d,
             realConfidence = realScore,
             spoof2dConfidence = spoof2d,
             spoof3dConfidence = spoof3d

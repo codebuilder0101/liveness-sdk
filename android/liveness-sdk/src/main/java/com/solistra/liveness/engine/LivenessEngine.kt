@@ -444,10 +444,18 @@ class LivenessEngine(
                         bestFaceImage = thumbnail,
                         sessionDurationMs = sessionDuration
                     )
+                    android.util.Log.i(
+                        "SolistraLiveness",
+                        "Liveness SUCCESS: PassiveScore=${"%.3f".format(avgPassiveScore)}, Challenges=${completedChallenges.map { it.name }}"
+                    )
                     isSessionActive = false
                     updateState(LivenessState.Success(result))
                     mainHandler.post { callback.onSuccess(result) }
                 } else {
+                    android.util.Log.w(
+                        "SolistraLiveness",
+                        "Passive check failed: avgScore=${"%.3f".format(avgPassiveScore)} < threshold=${config.passiveSpoofThreshold}"
+                    )
                     finishWithError(LivenessException.PassiveAntiSpoofFailed(avgPassiveScore))
                 }
             }
@@ -467,6 +475,7 @@ class LivenessEngine(
     }
 
     private fun finishWithError(error: LivenessException) {
+        android.util.Log.e("SolistraLiveness", "Session FAILED with error: ${error.message} (${error::class.java.simpleName})")
         isSessionActive = false
         updateState(LivenessState.Failed(error))
         mainHandler.post { callback.onError(error) }

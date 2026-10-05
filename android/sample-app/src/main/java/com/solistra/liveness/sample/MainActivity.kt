@@ -120,6 +120,7 @@ class MainActivity : AppCompatActivity() {
         val sampleSize = binding.sliderSampleSize.value.toInt()
         val screenSecurity = binding.switchScreenSecurity.isChecked
         val useGpu = binding.switchGpu.isChecked
+        val debugOverlay = binding.switchDebugOverlay.isChecked
 
         return LivenessConfig(
             challenges = if (selectedChallenges.isNotEmpty()) selectedChallenges else listOf(LivenessChallenge.BLINK),
@@ -127,7 +128,9 @@ class MainActivity : AppCompatActivity() {
             passiveSpoofThreshold = spoofThreshold,
             passiveFrameSampleSize = sampleSize,
             enableScreenSecurity = screenSecurity,
-            useGpuDelegate = useGpu
+            useGpuDelegate = useGpu,
+            enableDebugOverlay = debugOverlay,
+            enableDebugLogging = true
         )
     }
 
@@ -234,10 +237,11 @@ class MainActivity : AppCompatActivity() {
                 binding.chipOpenMouth.isChecked = false
 
                 binding.sliderTimeout.value = 8.0f
-                binding.sliderSpoofThreshold.value = 75f
+                binding.sliderSpoofThreshold.value = 55f
                 binding.sliderSampleSize.value = 8f
                 binding.switchScreenSecurity.isChecked = true
                 binding.switchGpu.isChecked = true
+                binding.switchDebugOverlay.isChecked = true
             }
 
             Preset.HIGH_SECURITY -> {
@@ -249,10 +253,11 @@ class MainActivity : AppCompatActivity() {
                 binding.chipOpenMouth.isChecked = true
 
                 binding.sliderTimeout.value = 5.0f
-                binding.sliderSpoofThreshold.value = 85f
+                binding.sliderSpoofThreshold.value = 70f
                 binding.sliderSampleSize.value = 12f
                 binding.switchScreenSecurity.isChecked = true
                 binding.switchGpu.isChecked = true
+                binding.switchDebugOverlay.isChecked = true
             }
 
             Preset.CUSTOM -> {

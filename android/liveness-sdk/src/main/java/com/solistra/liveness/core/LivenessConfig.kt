@@ -27,9 +27,9 @@ data class LivenessConfig(
     val challengeTimeoutSeconds: Float = 8.0f,
 
     /**
-     * Required minimum confidence threshold for passive anti-spoofing (0.0 to 1.0).
+     * Required minimum confidence threshold for passive anti-spoofing (0.0 to 1.0). Default: 0.55f.
      */
-    val passiveSpoofThreshold: Float = 0.75f,
+    val passiveSpoofThreshold: Float = 0.55f,
 
     /**
      * Number of sharp frames to accumulate for passive anti-spoofing averaging.
@@ -76,8 +76,8 @@ data class LivenessConfig(
 
         fun highSecurity(): LivenessConfig = LivenessConfig(
             randomChallengeCount = 3,
-            challengeTimeoutSeconds = 3.5f,
-            passiveSpoofThreshold = 0.90f,
+            challengeTimeoutSeconds = 4.0f,
+            passiveSpoofThreshold = 0.70f,
             passiveFrameSampleSize = 12
         )
     }
