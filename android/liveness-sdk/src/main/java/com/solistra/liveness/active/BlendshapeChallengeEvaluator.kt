@@ -19,6 +19,7 @@ class BlendshapeChallengeEvaluator(
 
     // ── Blink state (hysteresis transition) ──────────────────────────────────
     private var closedSinceMs = -1L
+    private var peakBlinkScore = 0f
 
     // ── Smile state (hysteresis + hold duration) ─────────────────────────────
     private var smileHoldStartTimeMs = 0L
@@ -56,6 +57,7 @@ class BlendshapeChallengeEvaluator(
 
     private fun resetChallengeState() {
         closedSinceMs = -1L
+        peakBlinkScore = 0f
         smileHoldStartTimeMs = 0L
         lastSmileValidTimeMs = 0L
         mouthOpenHoldStartTimeMs = 0L
@@ -90,39 +92,43 @@ class BlendshapeChallengeEvaluator(
     }
 
     /**
-     * Blink detection using hysteresis transition:
-     * - Closed when average blink score exceeds closeThreshold (~0.40).
-     * - Complete when eyes reopen (blink scores drop below 0.25) within valid duration (40ms - 1500ms).
+     * Blink detection using dynamic hysteresis:
+     * - Closed when average/max blink score exceeds closeThreshold (~0.38 - 0.45).
+     * - Complete when eyes reopen relative to baseline/peak within valid duration (40ms - 1500ms).
      */
     private fun evaluateBlink(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val blinkLeft = blendshapes["eyeBlinkLeft"] ?: 0f
         val blinkRight = blendshapes["eyeBlinkRight"] ?: 0f
         val avgBlink = (blinkLeft + blinkRight) / 2.0f
+        val maxBlink = maxOf(blinkLeft, blinkRight)
 
-        val closeThreshold = (config.eyeBlinkThreshold * 0.80f).coerceIn(0.35f, 0.60f)
-        val openThreshold = 0.25f
+        val closeThreshold = (config.eyeBlinkThreshold * 0.70f).coerceIn(0.32f, 0.48f)
 
         if (closedSinceMs < 0L) {
-            if (avgBlink >= closeThreshold) {
+            if (avgBlink >= closeThreshold || maxBlink >= (closeThreshold * 1.15f)) {
                 closedSinceMs = timestampMs
+                peakBlinkScore = maxOf(avgBlink, maxBlink)
                 return Pair(false, 0.5f)
             }
             val progress = (avgBlink / closeThreshold).coerceIn(0f, 0.45f)
             return Pair(false, progress)
         } else {
+            peakBlinkScore = maxOf(peakBlinkScore, avgBlink, maxBlink)
             val duration = timestampMs - closedSinceMs
-            val isReopened = (avgBlink < openThreshold) || (blinkLeft < openThreshold && blinkRight < openThreshold)
+            val isReopened = (avgBlink <= 0.32f) || (blinkLeft <= 0.30f && blinkRight <= 0.30f) || (avgBlink <= peakBlinkScore * 0.55f)
 
-            if (isReopened) {
+            if (isReopened && duration >= 40L) {
                 closedSinceMs = -1L
-                return if (duration in 40..1500) {
+                peakBlinkScore = 0f
+                return if (duration <= 1500L) {
                     Pair(true, 1.0f)
                 } else {
                     Pair(false, 0f)
                 }
-            } else if (duration > 2500) {
-                // Eyes held closed too long (e.g. squinting or sleeping)
+            } else if (duration > 2500L) {
+                // Eyes held closed too long
                 closedSinceMs = -1L
+                peakBlinkScore = 0f
                 return Pair(false, 0f)
             }
             return Pair(false, 0.75f)
@@ -130,27 +136,35 @@ class BlendshapeChallengeEvaluator(
     }
 
     /**
-     * Smile detection with mouth corner dominance and cheek squint support.
-     * Uses 100ms hold time and tolerates brief single-frame drops.
+     * Smile detection with multi-blendshape support (corners, cheeks, stretch).
+     * Uses 80ms hold time and tolerates brief single-frame drops.
      */
     private fun evaluateSmile(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val smileLeft = blendshapes["mouthSmileLeft"] ?: 0f
         val smileRight = blendshapes["mouthSmileRight"] ?: 0f
         val cheekLeft = blendshapes["cheekSquintLeft"] ?: 0f
         val cheekRight = blendshapes["cheekSquintRight"] ?: 0f
+        val stretchLeft = blendshapes["mouthStretchLeft"] ?: 0f
+        val stretchRight = blendshapes["mouthStretchRight"] ?: 0f
+        val upperUpLeft = blendshapes["mouthUpperUpLeft"] ?: 0f
+        val upperUpRight = blendshapes["mouthUpperUpRight"] ?: 0f
 
         val strongerSmile = maxOf(smileLeft, smileRight)
         val avgSmile = (smileLeft + smileRight) / 2.0f
         val avgCheek = (cheekLeft + cheekRight) / 2.0f
-        // Smile corners are primary; cheek squints provide natural boost without penalizing non-squint smiles
+        val maxStretch = maxOf(stretchLeft, stretchRight)
+        val avgUpperUp = (upperUpLeft + upperUpRight) / 2.0f
+
         val compositeScore = maxOf(
             strongerSmile,
-            avgSmile + avgCheek * 0.20f,
-            strongerSmile * 0.85f + avgCheek * 0.20f
+            avgSmile * 1.15f,
+            strongerSmile * 0.80f + avgCheek * 0.25f,
+            avgSmile * 0.70f + maxStretch * 0.40f,
+            avgSmile * 0.70f + avgUpperUp * 0.40f
         )
 
-        val effectiveThreshold = (config.smileThreshold * 0.68f).coerceIn(0.18f, 0.35f)
-        val requiredHold = 100L
+        val effectiveThreshold = (config.smileThreshold * 0.48f).coerceIn(0.14f, 0.28f)
+        val requiredHold = 80L
 
         if (compositeScore >= effectiveThreshold) {
             if (smileHoldStartTimeMs == 0L) {
@@ -234,8 +248,8 @@ class BlendshapeChallengeEvaluator(
         // When user looks to their left, nose moves left -> positive yaw
         // When user looks to their right, nose moves right -> negative yaw
         val turnExcursion = if (isLeft) deltaYaw else -deltaYaw
-        val targetYaw = config.headYawThresholdDegrees
-        val requiredHold = 100L
+        val targetYaw = (config.headYawThresholdDegrees * 0.68f).coerceIn(7.0f, 11.0f)
+        val requiredHold = 80L
 
         if (turnExcursion >= targetYaw) {
             if (headTurnPeakHoldStartMs == 0L) {
@@ -257,38 +271,28 @@ class BlendshapeChallengeEvaluator(
     /**
      * Head nod detection relative to starting posture and baseline pitch.
      * Supports bidirectional nod (nodding down-then-up OR up-then-down).
-     * Excursion of >= 8° (or config threshold) followed by >= 60% return or within 5.5° of reference.
+     * Excursion of >= 5° followed by return to within 4° of starting pitch.
      */
     private fun evaluateHeadNod(headPose: HeadPose, timestampMs: Long): Pair<Boolean, Float> {
         if (nodStartPitch == null) {
-            nodStartPitch = if (abs(headPose.pitch - baselinePitch) <= 6.0f) headPose.pitch else baselinePitch
+            nodStartPitch = if (abs(headPose.pitch - baselinePitch) <= 7.0f) headPose.pitch else baselinePitch
         }
         val refPitch = nodStartPitch ?: baselinePitch
         val deltaPitch = headPose.pitch - refPitch
-        val targetExcursion = (config.headPitchThresholdDegrees * 0.85f).coerceIn(6.0f, 10.0f)
-        val returnTolerance = 5.5f
+        val absDelta = abs(deltaPitch)
+        val targetExcursion = (config.headPitchThresholdDegrees * 0.65f).coerceIn(4.5f, 8.0f)
+        val returnTolerance = 4.0f
 
         return when (nodPhase) {
             NodPhase.WAITING_FOR_EXCURSION -> {
-                val downExcursion = deltaPitch
-                val upExcursion = -deltaPitch
-
-                if (downExcursion > nodPeakPitch && downExcursion > 0f) {
-                    nodPeakPitch = downExcursion
-                } else if (upExcursion > nodPeakPitch && upExcursion > 0f) {
-                    nodPeakPitch = upExcursion
+                if (absDelta > nodPeakPitch) {
+                    nodPeakPitch = absDelta
                 }
 
-                if (downExcursion >= targetExcursion) {
+                if (absDelta >= targetExcursion) {
                     nodPhase = NodPhase.WAITING_FOR_RETURN
-                    nodDirection = NodDirection.DOWN
-                    nodPeakPitch = downExcursion
-                    nodStartMs = timestampMs
-                    Pair(false, 0.65f)
-                } else if (upExcursion >= targetExcursion) {
-                    nodPhase = NodPhase.WAITING_FOR_RETURN
-                    nodDirection = NodDirection.UP
-                    nodPeakPitch = upExcursion
+                    nodDirection = if (deltaPitch >= 0f) NodDirection.DOWN else NodDirection.UP
+                    nodPeakPitch = absDelta
                     nodStartMs = timestampMs
                     Pair(false, 0.65f)
                 } else {
@@ -299,32 +303,25 @@ class BlendshapeChallengeEvaluator(
 
             NodPhase.WAITING_FOR_RETURN -> {
                 val elapsedSincePeak = timestampMs - nodStartMs
-                if (elapsedSincePeak > 2500L) {
-                    // Timed out waiting for return, restart excursion search
+                if (absDelta > nodPeakPitch) {
+                    nodPeakPitch = absDelta
+                }
+
+                if (elapsedSincePeak > 3000L) {
+                    // Timed out waiting for return, restart excursion search from current pitch
                     nodPhase = NodPhase.WAITING_FOR_EXCURSION
                     nodDirection = NodDirection.NONE
                     nodPeakPitch = 0f
                     nodStartPitch = headPose.pitch
                     Pair(false, 0f)
                 } else {
-                    val isReturned = when (nodDirection) {
-                        NodDirection.DOWN -> {
-                            // Excursion was down (+); returning means pitch decreases back towards 0
-                            deltaPitch <= returnTolerance || deltaPitch <= (nodPeakPitch * 0.40f)
-                        }
-                        NodDirection.UP -> {
-                            // Excursion was up (-); returning means pitch increases back towards 0
-                            -deltaPitch <= returnTolerance || -deltaPitch <= (nodPeakPitch * 0.40f)
-                        }
-                        NodDirection.NONE -> abs(deltaPitch) <= returnTolerance
-                    }
+                    val isReturned = absDelta <= returnTolerance || absDelta <= (nodPeakPitch * 0.45f)
 
                     if (isReturned) {
                         nodPhase = NodPhase.COMPLETE
                         Pair(true, 1.0f)
                     } else {
-                        val currentExcursion = if (nodDirection == NodDirection.DOWN) deltaPitch else -deltaPitch
-                        val returnRatio = (1f - (currentExcursion / nodPeakPitch).coerceIn(0f, 1f))
+                        val returnRatio = (1f - (absDelta / nodPeakPitch).coerceIn(0f, 1f))
                         val returnProgress = (0.65f + returnRatio * 0.35f).coerceIn(0.65f, 0.99f)
                         Pair(false, returnProgress)
                     }

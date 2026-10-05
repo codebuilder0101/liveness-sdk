@@ -56,6 +56,7 @@ public final class ChallengeEvaluator {
 
     // ── Blink state ──────────────────────────────────────────────────────────
     private var closedSinceTimestamp: TimeInterval = -1
+    private var peakBlinkScore: Float = 0
 
     // ── Smile state ──────────────────────────────────────────────────────────
     private var smileHoldStartTime: TimeInterval = 0
@@ -97,6 +98,7 @@ public final class ChallengeEvaluator {
 
     private func resetState() {
         closedSinceTimestamp = -1
+        peakBlinkScore = 0
         smileHoldStartTime = 0
         lastSmileValidTimestamp = 0
         mouthOpenHoldStartTime = 0
@@ -138,30 +140,34 @@ public final class ChallengeEvaluator {
         let blinkLeft = blendshapes["eyeBlinkLeft"] ?? 0
         let blinkRight = blendshapes["eyeBlinkRight"] ?? 0
         let avgBlink = (blinkLeft + blinkRight) / 2.0
+        let maxBlink = max(blinkLeft, blinkRight)
 
-        let closeThreshold = max(0.35, min(0.60, config.eyeBlinkThreshold * 0.80))
-        let openThreshold: Float = 0.25
+        let closeThreshold = max(0.32, min(0.48, config.eyeBlinkThreshold * 0.70))
 
         if closedSinceTimestamp < 0 {
-            if avgBlink >= closeThreshold {
+            if avgBlink >= closeThreshold || maxBlink >= (closeThreshold * 1.15) {
                 closedSinceTimestamp = timestamp
+                peakBlinkScore = max(avgBlink, maxBlink)
                 return (false, 0.5)
             }
             let progress = min(0.45, max(0.0, avgBlink / closeThreshold))
             return (false, progress)
         } else {
+            peakBlinkScore = max(peakBlinkScore, max(avgBlink, maxBlink))
             let duration = timestamp - closedSinceTimestamp
-            let isReopened = (avgBlink < openThreshold) || (blinkLeft < openThreshold && blinkRight < openThreshold)
+            let isReopened = (avgBlink <= 0.32) || (blinkLeft <= 0.30 && blinkRight <= 0.30) || (avgBlink <= peakBlinkScore * 0.55)
 
-            if isReopened {
+            if isReopened && duration >= 0.04 {
                 closedSinceTimestamp = -1
-                if duration >= 0.04 && duration <= 1.5 {
+                peakBlinkScore = 0
+                if duration <= 1.5 {
                     return (true, 1.0)
                 } else {
                     return (false, 0)
                 }
             } else if duration > 2.5 {
                 closedSinceTimestamp = -1
+                peakBlinkScore = 0
                 return (false, 0)
             }
             return (false, 0.75)
@@ -173,17 +179,30 @@ public final class ChallengeEvaluator {
         let smileRight = blendshapes["mouthSmileRight"] ?? 0
         let cheekLeft = blendshapes["cheekSquintLeft"] ?? 0
         let cheekRight = blendshapes["cheekSquintRight"] ?? 0
+        let stretchLeft = blendshapes["mouthStretchLeft"] ?? 0
+        let stretchRight = blendshapes["mouthStretchRight"] ?? 0
+        let upperUpLeft = blendshapes["mouthUpperUpLeft"] ?? 0
+        let upperUpRight = blendshapes["mouthUpperUpRight"] ?? 0
 
         let strongerSmile = max(smileLeft, smileRight)
         let avgSmile = (smileLeft + smileRight) / 2.0
         let avgCheek = (cheekLeft + cheekRight) / 2.0
+        let maxStretch = max(stretchLeft, stretchRight)
+        let avgUpperUp = (upperUpLeft + upperUpRight) / 2.0
+
         let compositeScore = max(
             strongerSmile,
-            max(avgSmile + avgCheek * 0.20, strongerSmile * 0.85 + avgCheek * 0.20)
+            max(
+                avgSmile * 1.15,
+                max(
+                    strongerSmile * 0.80 + avgCheek * 0.25,
+                    max(avgSmile * 0.70 + maxStretch * 0.40, avgSmile * 0.70 + avgUpperUp * 0.40)
+                )
+            )
         )
 
-        let effectiveThreshold = max(0.18, min(0.35, config.smileThreshold * 0.68))
-        let requiredHold: TimeInterval = 0.10 // 100ms
+        let effectiveThreshold = max(0.14, min(0.28, config.smileThreshold * 0.48))
+        let requiredHold: TimeInterval = 0.08 // 80ms
 
         if compositeScore >= effectiveThreshold {
             if smileHoldStartTime == 0 {
@@ -247,8 +266,8 @@ public final class ChallengeEvaluator {
     ) -> (Bool, Float) {
         let deltaYaw = headPose.yaw - baselineYaw
         let turnExcursion = isLeft ? deltaYaw : -deltaYaw
-        let targetYaw = config.headYawThresholdDegrees
-        let requiredHold: TimeInterval = 0.10 // 100ms
+        let targetYaw = max(7.0, min(11.0, config.headYawThresholdDegrees * 0.68))
+        let requiredHold: TimeInterval = 0.08 // 80ms
 
         if turnExcursion >= targetYaw {
             if headTurnPeakHoldStart == 0 {
@@ -269,34 +288,24 @@ public final class ChallengeEvaluator {
 
     private func evaluateHeadNod(headPose: HeadPoseAngles, timestamp: TimeInterval) -> (Bool, Float) {
         if nodStartPitch == nil {
-            nodStartPitch = abs(headPose.pitch - baselinePitch) <= 6.0 ? headPose.pitch : baselinePitch
+            nodStartPitch = abs(headPose.pitch - baselinePitch) <= 7.0 ? headPose.pitch : baselinePitch
         }
         let refPitch = nodStartPitch ?? baselinePitch
         let deltaPitch = headPose.pitch - refPitch
-        let targetExcursion = max(6.0, min(10.0, config.headPitchThresholdDegrees * 0.85))
-        let returnTolerance: Float = 5.5
+        let absDelta = abs(deltaPitch)
+        let targetExcursion = max(4.5, min(8.0, config.headPitchThresholdDegrees * 0.65))
+        let returnTolerance: Float = 4.0
 
         switch nodPhase {
         case .waitingForExcursion:
-            let downExcursion = deltaPitch
-            let upExcursion = -deltaPitch
-
-            if downExcursion > nodPeakPitch && downExcursion > 0 {
-                nodPeakPitch = downExcursion
-            } else if upExcursion > nodPeakPitch && upExcursion > 0 {
-                nodPeakPitch = upExcursion
+            if absDelta > nodPeakPitch {
+                nodPeakPitch = absDelta
             }
 
-            if downExcursion >= targetExcursion {
+            if absDelta >= targetExcursion {
                 nodPhase = .waitingForReturn
-                nodDirection = .down
-                nodPeakPitch = downExcursion
-                nodStartTimestamp = timestamp
-                return (false, 0.65)
-            } else if upExcursion >= targetExcursion {
-                nodPhase = .waitingForReturn
-                nodDirection = .up
-                nodPeakPitch = upExcursion
+                nodDirection = deltaPitch >= 0 ? .down : .up
+                nodPeakPitch = absDelta
                 nodStartTimestamp = timestamp
                 return (false, 0.65)
             } else {
@@ -306,29 +315,24 @@ public final class ChallengeEvaluator {
 
         case .waitingForReturn:
             let elapsedSincePeak = timestamp - nodStartTimestamp
-            if elapsedSincePeak > 2.5 {
+            if absDelta > nodPeakPitch {
+                nodPeakPitch = absDelta
+            }
+
+            if elapsedSincePeak > 3.0 {
                 nodPhase = .waitingForExcursion
                 nodDirection = .none
                 nodPeakPitch = 0
                 nodStartPitch = headPose.pitch
                 return (false, 0)
             } else {
-                let isReturned: Bool
-                switch nodDirection {
-                case .down:
-                    isReturned = deltaPitch <= returnTolerance || deltaPitch <= (nodPeakPitch * 0.40)
-                case .up:
-                    isReturned = -deltaPitch <= returnTolerance || -deltaPitch <= (nodPeakPitch * 0.40)
-                case .none:
-                    isReturned = abs(deltaPitch) <= returnTolerance
-                }
+                let isReturned = absDelta <= returnTolerance || absDelta <= (nodPeakPitch * 0.45)
 
                 if isReturned {
                     nodPhase = .complete
                     return (true, 1.0)
                 } else {
-                    let currentExcursion = nodDirection == .down ? deltaPitch : -deltaPitch
-                    let returnRatio = 1.0 - max(0.0, min(1.0, currentExcursion / nodPeakPitch))
+                    let returnRatio = 1.0 - max(0.0, min(1.0, absDelta / nodPeakPitch))
                     let returnProgress = min(0.99, max(0.65, Float(0.65 + Double(returnRatio) * 0.35)))
                     return (false, returnProgress)
                 }

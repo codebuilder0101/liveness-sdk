@@ -73,7 +73,7 @@ class BlendshapeChallengeEvaluatorTest {
     }
 
     @Test
-    fun `smile does not complete if held for less than 150ms`() {
+    fun `smile does not complete if held for less than required hold duration`() {
         evaluator.startChallenge(LivenessChallenge.SMILE, timestampMs = 1000L)
         val dummyPose = HeadPose(0f, 0f, 0f)
 
@@ -82,14 +82,14 @@ class BlendshapeChallengeEvaluatorTest {
             "mouthSmileRight" to 0.50f
         )
 
-        // Feed frames for only 90ms (3 frames)
+        // Feed frames for only 60ms (2 frames: 1000ms, 1030ms, 1060ms)
         var completed = false
-        for (i in 0..3) {
+        for (i in 0..2) {
             val ts = 1000L + (i * 30L)
             val (isDone, _) = evaluator.evaluateFrame(smileBlendshapes, dummyPose, ts)
             if (isDone) completed = true
         }
-        assertFalse("Smile should not complete under 150ms hold duration", completed)
+        assertFalse("Smile should not complete under 80ms hold duration", completed)
     }
 
     // ── HEAD NOD TESTS ───────────────────────────────────────────────────────
