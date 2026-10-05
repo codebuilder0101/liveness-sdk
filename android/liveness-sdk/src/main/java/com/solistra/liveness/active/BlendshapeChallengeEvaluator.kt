@@ -31,10 +31,13 @@ class BlendshapeChallengeEvaluator(
     // ── Head Turn state ──────────────────────────────────────────────────────
     private var headTurnPeakHoldStartMs = 0L
 
-    // ── Head Nod state (FSM with baseline excursion and return) ──────────────
-    private enum class NodPhase { WAITING_FOR_DOWN, WAITING_FOR_RETURN, COMPLETE }
-    private var nodPhase = NodPhase.WAITING_FOR_DOWN
+    // ── Head Nod state (Bidirectional FSM with baseline excursion and return) ──
+    private enum class NodPhase { WAITING_FOR_EXCURSION, WAITING_FOR_RETURN, COMPLETE }
+    private enum class NodDirection { NONE, DOWN, UP }
+    private var nodPhase = NodPhase.WAITING_FOR_EXCURSION
+    private var nodDirection = NodDirection.NONE
     private var nodPeakPitch = 0f
+    private var nodStartPitch: Float? = null
     private var nodStartMs = 0L
 
     fun setBaseline(pitch: Float, yaw: Float) {
@@ -58,8 +61,10 @@ class BlendshapeChallengeEvaluator(
         mouthOpenHoldStartTimeMs = 0L
         lastMouthValidTimeMs = 0L
         headTurnPeakHoldStartMs = 0L
-        nodPhase = NodPhase.WAITING_FOR_DOWN
+        nodPhase = NodPhase.WAITING_FOR_EXCURSION
+        nodDirection = NodDirection.NONE
         nodPeakPitch = 0f
+        nodStartPitch = null
         nodStartMs = 0L
     }
 
@@ -229,21 +234,40 @@ class BlendshapeChallengeEvaluator(
     }
 
     /**
-     * Head nod detection relative to alignment baseline pitch.
-     * Excursion of >= 10° from baseline, followed by return within 5° of baseline within 1.5s.
+     * Head nod detection relative to starting posture and baseline pitch.
+     * Supports bidirectional nod (nodding down-then-up OR up-then-down).
+     * Excursion of >= 8° (or config threshold) followed by >= 60% return or within 5.5° of reference.
      */
     private fun evaluateHeadNod(headPose: HeadPose, timestampMs: Long): Pair<Boolean, Float> {
-        val deltaPitch = headPose.pitch - baselinePitch
-        val targetExcursion = config.headPitchThresholdDegrees
-        val returnTolerance = 5.0f
+        if (nodStartPitch == null) {
+            nodStartPitch = if (abs(headPose.pitch - baselinePitch) <= 6.0f) headPose.pitch else baselinePitch
+        }
+        val refPitch = nodStartPitch ?: baselinePitch
+        val deltaPitch = headPose.pitch - refPitch
+        val targetExcursion = (config.headPitchThresholdDegrees * 0.85f).coerceIn(6.0f, 10.0f)
+        val returnTolerance = 5.5f
 
         return when (nodPhase) {
-            NodPhase.WAITING_FOR_DOWN -> {
-                // MediaPipe pitch: positive = looking down
-                if (deltaPitch > nodPeakPitch) nodPeakPitch = deltaPitch
+            NodPhase.WAITING_FOR_EXCURSION -> {
+                val downExcursion = deltaPitch
+                val upExcursion = -deltaPitch
 
-                if (nodPeakPitch >= targetExcursion) {
+                if (downExcursion > nodPeakPitch && downExcursion > 0f) {
+                    nodPeakPitch = downExcursion
+                } else if (upExcursion > nodPeakPitch && upExcursion > 0f) {
+                    nodPeakPitch = upExcursion
+                }
+
+                if (downExcursion >= targetExcursion) {
                     nodPhase = NodPhase.WAITING_FOR_RETURN
+                    nodDirection = NodDirection.DOWN
+                    nodPeakPitch = downExcursion
+                    nodStartMs = timestampMs
+                    Pair(false, 0.65f)
+                } else if (upExcursion >= targetExcursion) {
+                    nodPhase = NodPhase.WAITING_FOR_RETURN
+                    nodDirection = NodDirection.UP
+                    nodPeakPitch = upExcursion
                     nodStartMs = timestampMs
                     Pair(false, 0.65f)
                 } else {
@@ -253,17 +277,36 @@ class BlendshapeChallengeEvaluator(
             }
 
             NodPhase.WAITING_FOR_RETURN -> {
-                if (timestampMs - nodStartMs > 1500L) {
-                    // Timed out waiting for return, reset
-                    nodPhase = NodPhase.WAITING_FOR_DOWN
+                val elapsedSincePeak = timestampMs - nodStartMs
+                if (elapsedSincePeak > 2500L) {
+                    // Timed out waiting for return, restart excursion search
+                    nodPhase = NodPhase.WAITING_FOR_EXCURSION
+                    nodDirection = NodDirection.NONE
                     nodPeakPitch = 0f
+                    nodStartPitch = headPose.pitch
                     Pair(false, 0f)
-                } else if (abs(deltaPitch) <= returnTolerance) {
-                    nodPhase = NodPhase.COMPLETE
-                    Pair(true, 1.0f)
                 } else {
-                    val returnProgress = (0.65f + (1f - (deltaPitch / targetExcursion).coerceIn(0f, 1f)) * 0.35f).coerceIn(0.65f, 0.99f)
-                    Pair(false, returnProgress)
+                    val isReturned = when (nodDirection) {
+                        NodDirection.DOWN -> {
+                            // Excursion was down (+); returning means pitch decreases back towards 0
+                            deltaPitch <= returnTolerance || deltaPitch <= (nodPeakPitch * 0.40f)
+                        }
+                        NodDirection.UP -> {
+                            // Excursion was up (-); returning means pitch increases back towards 0
+                            -deltaPitch <= returnTolerance || -deltaPitch <= (nodPeakPitch * 0.40f)
+                        }
+                        NodDirection.NONE -> abs(deltaPitch) <= returnTolerance
+                    }
+
+                    if (isReturned) {
+                        nodPhase = NodPhase.COMPLETE
+                        Pair(true, 1.0f)
+                    } else {
+                        val currentExcursion = if (nodDirection == NodDirection.DOWN) deltaPitch else -deltaPitch
+                        val returnRatio = (1f - (currentExcursion / nodPeakPitch).coerceIn(0f, 1f))
+                        val returnProgress = (0.65f + returnRatio * 0.35f).coerceIn(0.65f, 0.99f)
+                        Pair(false, returnProgress)
+                    }
                 }
             }
 
@@ -272,6 +315,6 @@ class BlendshapeChallengeEvaluator(
     }
 
     fun getDebugStatus(): String {
-        return "Challenge: ${currentChallenge?.name ?: "None"}, Nod: $nodPhase (peak: ${"%.1f".format(nodPeakPitch)}°), Baseline: P=${"%.1f".format(baselinePitch)}° Y=${"%.1f".format(baselineYaw)}°"
+        return "Challenge: ${currentChallenge?.name ?: "None"}, Nod: $nodPhase [$nodDirection] (peak: ${"%.1f".format(nodPeakPitch)}°), Baseline: P=${"%.1f".format(baselinePitch)}° Y=${"%.1f".format(baselineYaw)}°"
     }
 }

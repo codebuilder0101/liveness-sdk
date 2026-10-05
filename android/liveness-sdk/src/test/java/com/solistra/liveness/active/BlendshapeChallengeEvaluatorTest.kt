@@ -105,14 +105,54 @@ class BlendshapeChallengeEvaluatorTest {
         val (done1, _) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 14f, yaw = 0f, roll = 0f), 1030L)
         assertFalse(done1)
 
-        // Frame 2: nods down to +25° (delta = +11° >= 10° threshold)
+        // Frame 2: nods down to +25° (delta = +11° >= 8.5° threshold)
         val (done2, prog2) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 25f, yaw = 0f, roll = 0f), 1060L)
         assertFalse(done2)
         assertTrue("Progress should jump to waiting for return", prog2 >= 0.65f)
 
-        // Frame 3: returns head back toward baseline (+16°, delta = +2° <= 5° return threshold)
+        // Frame 3: returns head back toward baseline (+16°, delta = +2° <= 5.5° return threshold)
         val (done3, prog3) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 16f, yaw = 0f, roll = 0f), 1120L)
-        assertTrue("Head nod must complete upon returning within 5° of baseline", done3)
+        assertTrue("Head nod must complete upon returning within 5.5° of baseline", done3)
+        assertEquals(1.0f, prog3, 0.001f)
+    }
+
+    @Test
+    fun `head nod succeeds when nodding up first then returning to center`() {
+        evaluator.setBaseline(pitch = 5f, yaw = 0f)
+        evaluator.startChallenge(LivenessChallenge.NOD_HEAD, timestampMs = 1000L)
+        val emptyBlendshapes = emptyMap<String, Float>()
+
+        // Frame 1: at resting pitch (+5°)
+        evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 5f, yaw = 0f, roll = 0f), 1030L)
+
+        // Frame 2: tilts UP to -5° (upExcursion = 10° >= 8.5° threshold)
+        val (done2, prog2) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = -5f, yaw = 0f, roll = 0f), 1060L)
+        assertFalse(done2)
+        assertTrue("Progress should indicate return phase", prog2 >= 0.65f)
+
+        // Frame 3: returns DOWN to +3° (within 5.5° of reference)
+        val (done3, prog3) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 3f, yaw = 0f, roll = 0f), 1120L)
+        assertTrue("Upward nod must complete when returning to center", done3)
+        assertEquals(1.0f, prog3, 0.001f)
+    }
+
+    @Test
+    fun `head nod succeeds after posture shift from preceding challenge`() {
+        // Suppose baseline was 0°, but after a smile or turn, resting pitch shifted to +4°
+        evaluator.setBaseline(pitch = 0f, yaw = 0f)
+        evaluator.startChallenge(LivenessChallenge.NOD_HEAD, timestampMs = 1000L)
+        val emptyBlendshapes = emptyMap<String, Float>()
+
+        // Frame 1: start at +4° resting pitch
+        evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 4f, yaw = 0f, roll = 0f), 1030L)
+
+        // Frame 2: nods down to +14° (delta = +10° relative to +4° start)
+        val (done2, _) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 14f, yaw = 0f, roll = 0f), 1060L)
+        assertFalse(done2)
+
+        // Frame 3: returns to +5° (within return tolerance of +4° start)
+        val (done3, prog3) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 5f, yaw = 0f, roll = 0f), 1120L)
+        assertTrue("Head nod must adapt to resting start pitch", done3)
         assertEquals(1.0f, prog3, 0.001f)
     }
 
@@ -124,7 +164,7 @@ class BlendshapeChallengeEvaluatorTest {
 
         // User nods down past baseline (+22°, delta = 12°) and holds head down
         evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 22f, yaw = 0f, roll = 0f), 1050L)
-        val (done, prog) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 21f, yaw = 0f, roll = 0f), 1100L)
+        val (done, prog) = evaluator.evaluateFrame(emptyBlendshapes, HeadPose(pitch = 22f, yaw = 0f, roll = 0f), 1100L)
 
         assertFalse("Head nod should not complete if head stays down", done)
         assertTrue(prog in 0.65f..0.99f)

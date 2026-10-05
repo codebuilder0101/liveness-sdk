@@ -68,10 +68,13 @@ public final class ChallengeEvaluator {
     // ── Head Turn state ──────────────────────────────────────────────────────
     private var headTurnPeakHoldStart: TimeInterval = 0
 
-    // ── Head Nod state (FSM) ─────────────────────────────────────────────────
-    private enum NodPhase { case waitingForDown, waitingForReturn, complete }
-    private var nodPhase: NodPhase = .waitingForDown
+    // ── Head Nod state (Bidirectional FSM with baseline excursion and return) ──
+    private enum NodPhase { case waitingForExcursion, waitingForReturn, complete }
+    private enum NodDirection { case none, down, up }
+    private var nodPhase: NodPhase = .waitingForExcursion
+    private var nodDirection: NodDirection = .none
     private var nodPeakPitch: Float = 0
+    private var nodStartPitch: Float?
     private var nodStartTimestamp: TimeInterval = 0
 
     public init(config: LivenessConfig) {
@@ -99,8 +102,10 @@ public final class ChallengeEvaluator {
         mouthOpenHoldStartTime = 0
         lastMouthValidTimestamp = 0
         headTurnPeakHoldStart = 0
-        nodPhase = .waitingForDown
+        nodPhase = .waitingForExcursion
+        nodDirection = .none
         nodPeakPitch = 0
+        nodStartPitch = nil
         nodStartTimestamp = 0
     }
 
@@ -249,32 +254,70 @@ public final class ChallengeEvaluator {
     }
 
     private func evaluateHeadNod(headPose: HeadPoseAngles, timestamp: TimeInterval) -> (Bool, Float) {
-        let deltaPitch = headPose.pitch - baselinePitch
-        let targetExcursion = config.headPitchThresholdDegrees
-        let returnTolerance: Float = 5.0
+        if nodStartPitch == nil {
+            nodStartPitch = abs(headPose.pitch - baselinePitch) <= 6.0 ? headPose.pitch : baselinePitch
+        }
+        let refPitch = nodStartPitch ?? baselinePitch
+        let deltaPitch = headPose.pitch - refPitch
+        let targetExcursion = max(6.0, min(10.0, config.headPitchThresholdDegrees * 0.85))
+        let returnTolerance: Float = 5.5
 
         switch nodPhase {
-        case .waitingForDown:
-            if deltaPitch > nodPeakPitch { nodPeakPitch = deltaPitch }
-            if nodPeakPitch >= targetExcursion {
+        case .waitingForExcursion:
+            let downExcursion = deltaPitch
+            let upExcursion = -deltaPitch
+
+            if downExcursion > nodPeakPitch && downExcursion > 0 {
+                nodPeakPitch = downExcursion
+            } else if upExcursion > nodPeakPitch && upExcursion > 0 {
+                nodPeakPitch = upExcursion
+            }
+
+            if downExcursion >= targetExcursion {
                 nodPhase = .waitingForReturn
+                nodDirection = .down
+                nodPeakPitch = downExcursion
                 nodStartTimestamp = timestamp
                 return (false, 0.65)
+            } else if upExcursion >= targetExcursion {
+                nodPhase = .waitingForReturn
+                nodDirection = .up
+                nodPeakPitch = upExcursion
+                nodStartTimestamp = timestamp
+                return (false, 0.65)
+            } else {
+                let progress = min(0.6, max(0.0, nodPeakPitch / targetExcursion))
+                return (false, progress)
             }
-            let progress = min(0.6, max(0.0, nodPeakPitch / targetExcursion))
-            return (false, progress)
 
         case .waitingForReturn:
-            if timestamp - nodStartTimestamp > 1.5 {
-                nodPhase = .waitingForDown
+            let elapsedSincePeak = timestamp - nodStartTimestamp
+            if elapsedSincePeak > 2.5 {
+                nodPhase = .waitingForExcursion
+                nodDirection = .none
                 nodPeakPitch = 0
+                nodStartPitch = headPose.pitch
                 return (false, 0)
-            } else if abs(deltaPitch) <= returnTolerance {
-                nodPhase = .complete
-                return (true, 1.0)
             } else {
-                let returnProgress = min(0.99, max(0.65, Float(0.65 + (1.0 - Double(deltaPitch / targetExcursion)) * 0.35)))
-                return (false, returnProgress)
+                let isReturned: Bool
+                switch nodDirection {
+                case .down:
+                    isReturned = deltaPitch <= returnTolerance || deltaPitch <= (nodPeakPitch * 0.40)
+                case .up:
+                    isReturned = -deltaPitch <= returnTolerance || -deltaPitch <= (nodPeakPitch * 0.40)
+                case .none:
+                    isReturned = abs(deltaPitch) <= returnTolerance
+                }
+
+                if isReturned {
+                    nodPhase = .complete
+                    return (true, 1.0)
+                } else {
+                    let currentExcursion = nodDirection == .down ? deltaPitch : -deltaPitch
+                    let returnRatio = 1.0 - max(0.0, min(1.0, currentExcursion / nodPeakPitch))
+                    let returnProgress = min(0.99, max(0.65, Float(0.65 + Double(returnRatio) * 0.35)))
+                    return (false, returnProgress)
+                }
             }
 
         case .complete:
