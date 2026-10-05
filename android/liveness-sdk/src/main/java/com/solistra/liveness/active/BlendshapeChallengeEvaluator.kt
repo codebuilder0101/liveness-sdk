@@ -131,7 +131,7 @@ class BlendshapeChallengeEvaluator(
 
     /**
      * Smile detection with mouth corner dominance and cheek squint support.
-     * Uses 150ms hold time and tolerates brief single-frame drops.
+     * Uses 100ms hold time and tolerates brief single-frame drops.
      */
     private fun evaluateSmile(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val smileLeft = blendshapes["mouthSmileLeft"] ?: 0f
@@ -140,12 +140,17 @@ class BlendshapeChallengeEvaluator(
         val cheekRight = blendshapes["cheekSquintRight"] ?: 0f
 
         val strongerSmile = maxOf(smileLeft, smileRight)
+        val avgSmile = (smileLeft + smileRight) / 2.0f
         val avgCheek = (cheekLeft + cheekRight) / 2.0f
-        // Mouth corners are primary (85%), cheek squints provide minor boost (15%)
-        val compositeScore = strongerSmile * 0.85f + avgCheek * 0.15f
+        // Smile corners are primary; cheek squints provide natural boost without penalizing non-squint smiles
+        val compositeScore = maxOf(
+            strongerSmile,
+            avgSmile + avgCheek * 0.20f,
+            strongerSmile * 0.85f + avgCheek * 0.20f
+        )
 
-        val effectiveThreshold = (config.smileThreshold * 0.85f).coerceIn(0.25f, 0.45f)
-        val requiredHold = 150L
+        val effectiveThreshold = (config.smileThreshold * 0.68f).coerceIn(0.18f, 0.35f)
+        val requiredHold = 100L
 
         if (compositeScore >= effectiveThreshold) {
             if (smileHoldStartTimeMs == 0L) {
@@ -170,14 +175,30 @@ class BlendshapeChallengeEvaluator(
     }
 
     /**
-     * Open mouth detection with jawOpen threshold and 150ms hold time.
+     * Open mouth detection with jawOpen dominance, lip separation support, and 100ms hold time.
+     * Supports natural, slight mouth opening.
      */
     private fun evaluateOpenMouth(blendshapes: Map<String, Float>, timestampMs: Long): Pair<Boolean, Float> {
         val jawOpen = blendshapes["jawOpen"] ?: 0f
-        val effectiveThreshold = (config.mouthOpenThreshold * 0.85f).coerceIn(0.28f, 0.50f)
-        val requiredHold = 150L
+        val lowerDownL = blendshapes["mouthLowerDownLeft"] ?: 0f
+        val lowerDownR = blendshapes["mouthLowerDownRight"] ?: 0f
+        val upperUpL = blendshapes["mouthUpperUpLeft"] ?: 0f
+        val upperUpR = blendshapes["mouthUpperUpRight"] ?: 0f
 
-        if (jawOpen >= effectiveThreshold) {
+        val avgLowerDown = (lowerDownL + lowerDownR) / 2.0f
+        val avgUpperUp = (upperUpL + upperUpR) / 2.0f
+        val lipSeparation = avgLowerDown * 0.60f + avgUpperUp * 0.40f
+
+        // Robust composite score combining jaw movement with lip opening
+        val compositeScore = maxOf(
+            jawOpen,
+            jawOpen * 0.70f + lipSeparation * 0.50f,
+            lipSeparation * 0.90f
+        )
+        val effectiveThreshold = (config.mouthOpenThreshold * 0.65f).coerceIn(0.16f, 0.30f)
+        val requiredHold = 100L
+
+        if (compositeScore >= effectiveThreshold) {
             if (mouthOpenHoldStartTimeMs == 0L) {
                 mouthOpenHoldStartTimeMs = timestampMs
             }
@@ -193,7 +214,7 @@ class BlendshapeChallengeEvaluator(
             if (timestampMs - lastMouthValidTimeMs > 120L) {
                 mouthOpenHoldStartTimeMs = 0L
             }
-            val progress = (jawOpen / effectiveThreshold) * 0.5f
+            val progress = (compositeScore / effectiveThreshold) * 0.5f
             return Pair(false, progress.coerceIn(0f, 0.5f))
         }
     }

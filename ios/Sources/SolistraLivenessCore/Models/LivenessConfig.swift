@@ -20,14 +20,14 @@ public struct LivenessConfig {
         challenges: [LivenessChallenge] = [.blink, .smile],
         randomChallengeCount: Int = 2,
         challengeTimeoutSeconds: Float = 8.0,
-        passiveSpoofThreshold: Float = 0.75,
+        passiveSpoofThreshold: Float = 0.55,
         passiveFrameSampleSize: Int = 8,
         enableScreenSecurity: Bool = true,
         eyeBlinkThreshold: Float = 0.50,
         smileThreshold: Float = 0.35,
-        mouthOpenThreshold: Float = 0.40,
+        mouthOpenThreshold: Float = 0.28,
         headYawThresholdDegrees: Float = 12.0,
-        headPitchThresholdDegrees: Float = 10.0,
+        headPitchThresholdDegrees: Float = 8.0,
         enableDebugLogging: Bool = true
     ) {
         self.challenges = challenges

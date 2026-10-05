@@ -175,11 +175,15 @@ public final class ChallengeEvaluator {
         let cheekRight = blendshapes["cheekSquintRight"] ?? 0
 
         let strongerSmile = max(smileLeft, smileRight)
+        let avgSmile = (smileLeft + smileRight) / 2.0
         let avgCheek = (cheekLeft + cheekRight) / 2.0
-        let compositeScore = strongerSmile * 0.85 + avgCheek * 0.15
+        let compositeScore = max(
+            strongerSmile,
+            max(avgSmile + avgCheek * 0.20, strongerSmile * 0.85 + avgCheek * 0.20)
+        )
 
-        let effectiveThreshold = max(0.25, min(0.45, config.smileThreshold * 0.85))
-        let requiredHold: TimeInterval = 0.15 // 150ms
+        let effectiveThreshold = max(0.18, min(0.35, config.smileThreshold * 0.68))
+        let requiredHold: TimeInterval = 0.10 // 100ms
 
         if compositeScore >= effectiveThreshold {
             if smileHoldStartTime == 0 {
@@ -203,10 +207,20 @@ public final class ChallengeEvaluator {
 
     private func evaluateOpenMouth(blendshapes: [String: Float], timestamp: TimeInterval) -> (Bool, Float) {
         let jawOpen = blendshapes["jawOpen"] ?? 0
-        let effectiveThreshold = max(0.28, min(0.50, config.mouthOpenThreshold * 0.85))
-        let requiredHold: TimeInterval = 0.15 // 150ms
+        let lowerDownL = blendshapes["mouthLowerDownLeft"] ?? 0
+        let lowerDownR = blendshapes["mouthLowerDownRight"] ?? 0
+        let upperUpL = blendshapes["mouthUpperUpLeft"] ?? 0
+        let upperUpR = blendshapes["mouthUpperUpRight"] ?? 0
 
-        if jawOpen >= effectiveThreshold {
+        let avgLowerDown = (lowerDownL + lowerDownR) / 2.0
+        let avgUpperUp = (upperUpL + upperUpR) / 2.0
+        let lipSeparation = avgLowerDown * 0.60 + avgUpperUp * 0.40
+
+        let compositeScore = max(jawOpen, max(jawOpen * 0.70 + lipSeparation * 0.50, lipSeparation * 0.90))
+        let effectiveThreshold = max(0.16, min(0.30, config.mouthOpenThreshold * 0.65))
+        let requiredHold: TimeInterval = 0.10 // 100ms
+
+        if compositeScore >= effectiveThreshold {
             if mouthOpenHoldStartTime == 0 {
                 mouthOpenHoldStartTime = timestamp
             }
@@ -221,7 +235,7 @@ public final class ChallengeEvaluator {
             if timestamp - lastMouthValidTimestamp > 0.12 {
                 mouthOpenHoldStartTime = 0
             }
-            let progress = (jawOpen / effectiveThreshold) * 0.5
+            let progress = (compositeScore / effectiveThreshold) * 0.5
             return (false, max(0, min(0.5, progress)))
         }
     }

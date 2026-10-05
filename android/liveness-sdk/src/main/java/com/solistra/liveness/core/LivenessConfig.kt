@@ -56,9 +56,9 @@ data class LivenessConfig(
      */
     val eyeBlinkThreshold: Float = 0.50f,
     val smileThreshold: Float = 0.35f,
-    val mouthOpenThreshold: Float = 0.40f,
+    val mouthOpenThreshold: Float = 0.28f,
     val headYawThresholdDegrees: Float = 12.0f,
-    val headPitchThresholdDegrees: Float = 10.0f,
+    val headPitchThresholdDegrees: Float = 8.0f,
 
     /**
      * Enable real-time on-screen diagnostics overlay for blendshapes, pose, and FPS.

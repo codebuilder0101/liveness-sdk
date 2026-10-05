@@ -249,6 +249,30 @@ class BlendshapeChallengeEvaluatorTest {
         assertTrue("Open mouth challenge should succeed after 150ms hold", completed)
     }
 
+    @Test
+    fun `open mouth succeeds with natural slight mouth open and lip separation`() {
+        evaluator.startChallenge(LivenessChallenge.OPEN_MOUTH, timestampMs = 1000L)
+        val dummyPose = HeadPose(0f, 0f, 0f)
+
+        val slightMouthOpen = mapOf(
+            "jawOpen" to 0.22f,
+            "mouthLowerDownLeft" to 0.30f,
+            "mouthLowerDownRight" to 0.30f,
+            "mouthUpperUpLeft" to 0.15f,
+            "mouthUpperUpRight" to 0.15f
+        )
+        var completed = false
+        for (i in 0..6) {
+            val ts = 1000L + (i * 30L)
+            val (isDone, _) = evaluator.evaluateFrame(slightMouthOpen, dummyPose, ts)
+            if (isDone) {
+                completed = true
+                break
+            }
+        }
+        assertTrue("Slight natural mouth opening must succeed", completed)
+    }
+
     // ── HEAD POSE CALCULATOR MATRIX TEST ──────────────────────────────────────
 
     @Test

@@ -215,7 +215,7 @@ class LivenessEngine(
             }
 
             // 4. Concurrently run Passive Anti-Spoofing on background thread
-            dispatchPassiveInference(inputBitmap, validFaceBox, headPose)
+            dispatchPassiveInference(inputBitmap, validFaceBox, headPose, blendshapes)
 
             // 5. Per-frame debug logging (Step 0)
             if (config.enableDebugLogging || config.enableDebugOverlay) {
@@ -417,15 +417,34 @@ class LivenessEngine(
         return if (samples > 0) (totalLum / samples).toFloat() else 128f
     }
 
-    private fun dispatchPassiveInference(fullBitmap: Bitmap, faceBbox: RectF, headPose: HeadPose) {
+    private fun dispatchPassiveInference(
+        fullBitmap: Bitmap,
+        faceBbox: RectF,
+        headPose: HeadPose,
+        blendshapes: Map<String, Float> = emptyMap()
+    ) {
         val classifier = miniFASNetClassifier ?: return
 
-        // Anti-Spoofing Model (MiniFASNet) is trained on frontal face crops.
-        // Gating: Only sample frames when face is near-frontal (|deltaYaw| <= 10°, |deltaPitch| <= 10°).
-        // Profile/angled frames (during head turns) distort context crops and trigger false spoof flags.
+        // Anti-Spoofing Model (MiniFASNet) is trained on neutral, frontal face crops.
+        // Gating 1: Only sample frames when face is near-frontal (|deltaYaw| <= 6°, |deltaPitch| <= 6°).
         val deltaYaw = headPose.yaw - challengeEvaluator.getBaselineYaw()
         val deltaPitch = headPose.pitch - challengeEvaluator.getBaselinePitch()
-        if (abs(deltaYaw) > 10f || abs(deltaPitch) > 10f) {
+        if (abs(deltaYaw) > 6f || abs(deltaPitch) > 6f) {
+            return
+        }
+
+        // Gating 2: Strict neutral expression check.
+        // Any non-neutral expression (mouth open, wide smile, blinking, squinting) distorts the face
+        // texture / oral cavity geometry, which convolutional anti-spoof nets (MiniFASNet) penalize as 3D spoof.
+        val blinkL = blendshapes["eyeBlinkLeft"] ?: 0f
+        val blinkR = blendshapes["eyeBlinkRight"] ?: 0f
+        val avgBlink = (blinkL + blinkR) / 2.0f
+        val jawOpen = blendshapes["jawOpen"] ?: 0f
+        val smileL = blendshapes["mouthSmileLeft"] ?: 0f
+        val smileR = blendshapes["mouthSmileRight"] ?: 0f
+        val maxSmile = maxOf(smileL, smileR)
+
+        if (avgBlink > 0.20f || jawOpen > 0.05f || maxSmile > 0.10f) {
             return
         }
 
@@ -451,7 +470,7 @@ class LivenessEngine(
                 spoofScoreSmoother.addSample(result.realConfidence)
 
                 synchronized(stateLock) {
-                    if (abs(deltaYaw) < 6f && abs(deltaPitch) < 6f && result.realConfidence > 0.7f) {
+                    if (abs(deltaYaw) < 6f && abs(deltaPitch) < 6f && avgBlink < 0.20f && jawOpen < 0.05f && maxSmile < 0.10f && result.realConfidence > 0.7f) {
                         bestFaceBitmap = frameCopy.copy(Bitmap.Config.ARGB_8888, false)
                     }
                 }

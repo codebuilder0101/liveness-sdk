@@ -114,7 +114,7 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
             }
 
             // Run Dual-Scale Passive Anti-Spoofing (Scale 2.7x and Scale 4.0x)
-            self.runPassiveInference(image: image, faceBbox: bbox, headPose: headPose)
+            self.runPassiveInference(image: image, faceBbox: bbox, headPose: headPose, blendshapes: blendshapes)
 
             // State Machine
             switch self.currentState {
@@ -213,13 +213,31 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
         }
     }
 
-    private func runPassiveInference(image: UIImage, faceBbox: CGRect, headPose: HeadPoseAngles) {
+    private func runPassiveInference(
+        image: UIImage,
+        faceBbox: CGRect,
+        headPose: HeadPoseAngles,
+        blendshapes: [String: Float] = [:]
+    ) {
         guard !isPassiveInferencing else { return }
 
-        // Gating: only run passive anti-spoof on near-frontal frames
+        // Gating 1: only run passive anti-spoof on near-frontal frames (|deltaYaw| <= 6°, |deltaPitch| <= 6°)
         let deltaYaw = headPose.yaw - challengeEvaluator.getBaselineYaw()
         let deltaPitch = headPose.pitch - challengeEvaluator.getBaselinePitch()
-        if abs(deltaYaw) > 10.0 || abs(deltaPitch) > 10.0 {
+        if abs(deltaYaw) > 6.0 || abs(deltaPitch) > 6.0 {
+            return
+        }
+
+        // Gating 2: strict neutral expression check
+        let blinkL = blendshapes["eyeBlinkLeft"] ?? 0
+        let blinkR = blendshapes["eyeBlinkRight"] ?? 0
+        let avgBlink = (blinkL + blinkR) / 2.0
+        let jawOpen = blendshapes["jawOpen"] ?? 0
+        let smileL = blendshapes["mouthSmileLeft"] ?? 0
+        let smileR = blendshapes["mouthSmileRight"] ?? 0
+        let maxSmile = max(smileL, smileR)
+
+        if avgBlink > 0.20 || jawOpen > 0.05 || maxSmile > 0.10 {
             return
         }
 
@@ -237,7 +255,7 @@ public final class LivenessEngine: NSObject, MediaPipeLandmarkerDelegate {
 
         spoofSmoother.addSample(realConfidence: combinedReal)
 
-        if abs(deltaYaw) < 6.0 && abs(deltaPitch) < 6.0 && combinedReal > 0.8 {
+        if abs(deltaYaw) < 6.0 && abs(deltaPitch) < 6.0 && avgBlink < 0.20 && jawOpen < 0.05 && maxSmile < 0.10 && combinedReal > 0.8 {
             bestFaceImage = image
         }
 

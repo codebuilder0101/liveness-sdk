@@ -176,15 +176,22 @@ class MainActivity : AppCompatActivity() {
             binding.tvStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.status_error))
             binding.tvStatusBadge.setBackgroundResource(R.drawable.bg_badge_failed)
 
-            val spoofScore = fallbackResult?.passiveScore ?: 0f
+            val spoofScore = fallbackResult?.passiveScore
+                ?: (if (error is com.solistra.liveness.core.LivenessException.PassiveAntiSpoofFailed) error.score else 0f)
             val passivePercent = (spoofScore * 100).toInt()
-            binding.tvPassiveScoreVal.text = if (spoofScore > 0f) "$passivePercent%" else "0%"
+            binding.tvPassiveScoreVal.text = "$passivePercent%"
             binding.tvPassiveScoreVal.setTextColor(ContextCompat.getColor(this, R.color.status_error))
             binding.indicatorPassiveScore.progress = passivePercent
             binding.indicatorPassiveScore.setIndicatorColor(ContextCompat.getColor(this, R.color.status_error))
 
             binding.tvDurationVal.text = "Session Duration: ${fallbackResult?.sessionDurationMs ?: 0} ms"
-            binding.tvChallengesCompleted.text = "Challenges: None"
+            val completedList = fallbackResult?.completedChallenges
+                ?: (if (error is com.solistra.liveness.core.LivenessException.ChallengeTimeout) listOf() else emptyList())
+            binding.tvChallengesCompleted.text = if (completedList.isNotEmpty()) {
+                "Challenges: ${completedList.joinToString { it.name.lowercase().replace('_', ' ').replaceFirstChar(Char::titlecase) }}"
+            } else {
+                "Challenges: None"
+            }
 
             val errorMsg = error?.message ?: "Verification failed or cancelled by user"
             binding.tvErrorBanner.text = "Error: $errorMsg"
@@ -195,7 +202,7 @@ class MainActivity : AppCompatActivity() {
                     isLive = false,
                     passiveScore = spoofScore,
                     sessionDurationMs = fallbackResult?.sessionDurationMs ?: 0,
-                    completedChallenges = emptyList(),
+                    completedChallenges = completedList,
                     errorMessage = errorMsg
                 )
             )
