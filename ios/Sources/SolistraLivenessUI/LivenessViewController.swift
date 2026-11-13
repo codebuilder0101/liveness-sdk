@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import SolistraLivenessCore
 import SolistraLivenessEngine
+import SolistraLivenessNetwork
 
 public final class LivenessViewController: UIViewController, LivenessDelegate, CameraManagerDelegate {
 
@@ -185,6 +186,69 @@ public final class LivenessViewController: UIViewController, LivenessDelegate, C
             timeoutProgressView.isHidden = true
 
         case .success(let result):
+            if config.autoUploadToMobfacil, let authConfig = config.mobfacilAuthConfig {
+                promptLabel.text = "Transmitting to MobFácil..."
+                overlayView.setBorderColor(UIColor.cyan)
+
+                Task { [weak self] in
+                    guard let self = self else { return }
+                    let tokenManager = MobfacilTokenManager(config: authConfig)
+                    let collector = MobfacilCollectorService(tokenManager: tokenManager, config: authConfig)
+                    let uploadOutcome = await collector.uploadLivenessData(result: result)
+
+                    await MainActor.run {
+                        switch uploadOutcome {
+                        case .success:
+                            self.promptLabel.text = "Verification Complete"
+                            self.overlayView.setBorderColor(UIColor(red: 0.0, green: 0.9, blue: 0.4, alpha: 1.0))
+                            self.overlayView.setProgress(1.0)
+                            self.feedbackGenerator.notificationOccurred(.success)
+                            let finalResult = LivenessResult(
+                                isLive: result.isLive,
+                                passiveScore: result.passiveScore,
+                                completedChallenges: result.completedChallenges,
+                                bestFaceImage: result.bestFaceImage,
+                                sessionDurationMs: result.sessionDurationMs,
+                                timestamp: result.timestamp,
+                                uploadResult: uploadOutcome
+                            )
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                self.completionDelegate?.livenessSession(didCompleteWithResult: finalResult)
+                                self.dismiss(animated: true)
+                            }
+
+                        case .failure(let statusCode, let message, let errorCode, _):
+                            if errorCode.lowercased().contains("invalid_client") {
+                                self.promptLabel.text = "Licença bloqueada por inadimplência"
+                                self.overlayView.setBorderColor(UIColor(red: 1.0, green: 0.1, blue: 0.2, alpha: 1.0))
+                                self.feedbackGenerator.notificationOccurred(.error)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                    self.completionDelegate?.livenessSession(didFailWithError: .mobfacilLicenseBlocked(message))
+                                    self.dismiss(animated: true)
+                                }
+                            } else {
+                                self.promptLabel.text = "Verification Complete"
+                                self.overlayView.setBorderColor(UIColor(red: 0.0, green: 0.9, blue: 0.4, alpha: 1.0))
+                                let finalResult = LivenessResult(
+                                    isLive: result.isLive,
+                                    passiveScore: result.passiveScore,
+                                    completedChallenges: result.completedChallenges,
+                                    bestFaceImage: result.bestFaceImage,
+                                    sessionDurationMs: result.sessionDurationMs,
+                                    timestamp: result.timestamp,
+                                    uploadResult: uploadOutcome
+                                )
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                    self.completionDelegate?.livenessSession(didCompleteWithResult: finalResult)
+                                    self.dismiss(animated: true)
+                                }
+                            }
+                        }
+                    }
+                }
+                return
+            }
+
             promptLabel.text = "Verification Complete"
             overlayView.setBorderColor(UIColor(red: 0.0, green: 0.9, blue: 0.4, alpha: 1.0))
             overlayView.setProgress(1.0)

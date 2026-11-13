@@ -16,6 +16,10 @@ public struct LivenessConfig {
     public var headPitchThresholdDegrees: Float
     public var enableDebugLogging: Bool
 
+    // MobFácil Configuration
+    public var mobfacilAuthConfig: MobfacilAuthConfig?
+    public var autoUploadToMobfacil: Bool
+
     public init(
         challenges: [LivenessChallenge] = [.blink, .smile],
         randomChallengeCount: Int = 2,
@@ -28,7 +32,9 @@ public struct LivenessConfig {
         mouthOpenThreshold: Float = 0.28,
         headYawThresholdDegrees: Float = 12.0,
         headPitchThresholdDegrees: Float = 8.0,
-        enableDebugLogging: Bool = true
+        enableDebugLogging: Bool = true,
+        mobfacilAuthConfig: MobfacilAuthConfig? = nil,
+        autoUploadToMobfacil: Bool = false
     ) {
         self.challenges = challenges
         self.randomChallengeCount = randomChallengeCount
@@ -42,6 +48,8 @@ public struct LivenessConfig {
         self.headYawThresholdDegrees = headYawThresholdDegrees
         self.headPitchThresholdDegrees = headPitchThresholdDegrees
         self.enableDebugLogging = enableDebugLogging
+        self.mobfacilAuthConfig = mobfacilAuthConfig
+        self.autoUploadToMobfacil = autoUploadToMobfacil
     }
 
     public static var `default`: LivenessConfig {

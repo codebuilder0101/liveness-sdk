@@ -68,7 +68,19 @@ data class LivenessConfig(
     /**
      * Enable detailed Logcat debug stream per frame.
      */
-    val enableDebugLogging: Boolean = true
+    val enableDebugLogging: Boolean = true,
+
+    /**
+     * Optional MobFácil Keycloak and KrakenD Gateway configuration.
+     * When configured, enables Bearer token authenticated telemetry and face data collection.
+     */
+    val mobfacilAuthConfig: com.solistra.liveness.network.MobfacilAuthConfig? = null,
+
+    /**
+     * Whether to automatically upload verification outcome to MobFácil KrakenD collector
+     * upon successful on-device verification.
+     */
+    val autoUploadToMobfacil: Boolean = false
 ) : Parcelable {
 
     companion object {

@@ -34,8 +34,9 @@ liveness-sdk/
 │   │       ├── active/           # MediaPipe Face Landmarker & Blendshapes
 │   │       ├── passive/          # MiniFASNet TFLite classifier & cropper
 │   │       ├── engine/           # State machine coordinator
+│   │       ├── network/          # MobFácil Keycloak & KrakenD integration
 │   │       └── ui/               # CameraX & dynamic oval overlay
-│   └── sample-app/               # Sample Android Application
+│   └── sample-app/               # Sample Android Application with MobFácil QA tools
 └── ios/                          # iOS SDK (Swift Package Manager)
     ├── Package.swift
     └── Sources/
@@ -43,6 +44,7 @@ liveness-sdk/
         ├── SolistraLivenessActive/
         ├── SolistraLivenessPassive/
         ├── SolistraLivenessEngine/
+        ├── SolistraLivenessNetwork/  # MobFácil Keycloak OAuth2 & Collector
         └── SolistraLivenessUI/
 ```
 
@@ -134,6 +136,63 @@ class ViewController: UIViewController, LivenessDelegate {
     func livenessSession(didUpdateState state: LivenessState) {}
     func livenessSession(didUpdateProgress progress: Float, forChallenge challenge: LivenessChallenge) {}
 }
+```
+
+---
+
+## 🔐 MobFácil Keycloak & KrakenD Integration
+
+The SDK includes a built-in enterprise integration for **MobFácil Keycloak OAuth2 IDP** and **KrakenD API Gateway** (`api.stg.mobfacil.com.br`).
+
+### The 5 Lifecycle Flows
+
+| Flow | Name | Description | Key Result |
+| :--- | :--- | :--- | :--- |
+| **Flow 1** | **Autenticação da Empresa** | Client credentials auth via `POST /login/token` | 200 OK + JWT Bearer token (300s expiry) |
+| **Flow 2** | **Envio de Dados** | Telemetry and face snapshot transmission to `/collector/liveness` | 200 OK / automatic 401 retry |
+| **Flow 3** | **Renovação Proativa** | Background token renewal 60s before 300s expiry | Zero camera interruptions |
+| **Flow 4** | **Inadimplência** | Detects suspended client license (`error: invalid_client`) | Surfaces `Licença bloqueada por inadimplência` |
+| **Flow 5** | **Vazamento do Secret** | Detects rotated or leaked secrets (`error: unauthorized_client`) | Surfaces `Credenciais inválidas ou secret rotacionado` |
+
+### Resilient DNS Fallback
+Staging domains on `.com.br` (`api.stg.mobfacil.com.br`) delegate via CNAME to `65.21.200.181`. The SDK provides DNS-level interception (`MobfacilDns` on Android, `MobfacilTlsPinningDelegate` on iOS) to guarantee connectivity across international carriers without breaking TLS SNI certificate validation.
+
+### Android Usage
+
+```kotlin
+import com.solistra.liveness.core.LivenessConfig
+import com.solistra.liveness.network.MobfacilAuthConfig
+
+val config = LivenessConfig(
+    mobfacilAuthConfig = MobfacilAuthConfig.staging(),
+    autoUploadToMobfacil = true
+)
+```
+
+Or manually via `MobfacilCollectorService`:
+```kotlin
+val tokenManager = MobfacilTokenManager.getInstance(MobfacilAuthConfig.staging(), context)
+val collector = MobfacilCollectorService(tokenManager)
+val uploadResult = collector.uploadLivenessData(livenessResult)
+```
+
+### iOS Usage
+
+```swift
+import SolistraLivenessCore
+import SolistraLivenessNetwork
+
+let config = LivenessConfig(
+    mobfacilAuthConfig = .staging,
+    autoUploadToMobfacil = true
+)
+```
+
+Or manually:
+```swift
+let tokenManager = MobfacilTokenManager(config: .staging)
+let collector = MobfacilCollectorService(tokenManager: tokenManager)
+let uploadResult = await collector.uploadLivenessData(result: result)
 ```
 
 ---

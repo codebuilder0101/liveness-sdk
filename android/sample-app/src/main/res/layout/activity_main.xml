@@ -471,7 +471,181 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- 5. Session Audit Log Card -->
+            <!-- 5. MobFácil Keycloak & KrakenD Gateway Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="MobFácil Keycloak &amp; KrakenD"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textAllCaps="true" />
+
+                    <TextView
+                        android:id="@+id/tvMobfacilTokenBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_badge_neutral"
+                        android:paddingStart="10dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="3dp"
+                        android:text="NO TOKEN"
+                        android:textColor="@color/status_neutral"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Staging: api.stg.mobfacil.com.br (Client: sdk_ken_QA)"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <!-- Auto-upload Switch -->
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchMobfacilUpload"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:checked="true"
+                    android:text="Auto-Upload to Collector Gateway (Flow 2)"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp" />
+
+                <!-- Collector Endpoint input -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                    app:boxStrokeColor="@color/brand_cyan"
+                    app:hintTextColor="@color/brand_cyan"
+                    android:hint="Collector Endpoint Path or Full URL">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etCollectorEndpoint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="/collector/liveness"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp"
+                        android:inputType="textUri" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Token Status Details -->
+                <TextView
+                    android:id="@+id/tvMobfacilTokenStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_image_frame"
+                    android:padding="10dp"
+                    android:text="Token: Not authenticated yet"
+                    android:textColor="@color/brand_cyan"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <!-- Collector Upload Status -->
+                <TextView
+                    android:id="@+id/tvMobfacilUploadStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_image_frame"
+                    android:padding="10dp"
+                    android:text="Last Upload: No attempts yet"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <!-- Action Buttons Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestMobfacilAuth"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Test Auth (Flow 1)"
+                        android:textSize="11sp"
+                        android:textColor="@color/brand_cyan" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestDelinquency"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="Flow 4: Inadimplência"
+                        android:textSize="11sp"
+                        android:textColor="@color/status_error" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestRotatedSecret"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="Flow 5: Vazamento"
+                        android:textSize="11sp"
+                        android:textColor="@color/status_error" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestUploadDirect"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Test Flow 2 Upload"
+                        android:textSize="11sp"
+                        android:textColor="@color/status_success" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearMobfacilToken"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="Clear Token Cache"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- 6. Session Audit Log Card -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

@@ -14,5 +14,6 @@ data class LivenessResult(
     val completedChallenges: List<LivenessChallenge>,
     val bestFaceImage: Bitmap?,
     val sessionDurationMs: Long,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val uploadResult: com.solistra.liveness.network.MobfacilUploadResult? = null
 ) : Parcelable

@@ -9,7 +9,7 @@ let package = Package(
     products: [
         .library(
             name: "SolistraLivenessSDK",
-            targets: ["SolistraLivenessCore", "SolistraLivenessActive", "SolistraLivenessPassive", "SolistraLivenessEngine", "SolistraLivenessUI"]
+            targets: ["SolistraLivenessCore", "SolistraLivenessActive", "SolistraLivenessPassive", "SolistraLivenessEngine", "SolistraLivenessUI", "SolistraLivenessNetwork"]
         ),
     ],
     dependencies: [
@@ -38,12 +38,17 @@ let package = Package(
         ),
         .target(
             name: "SolistraLivenessUI",
-            dependencies: ["SolistraLivenessCore", "SolistraLivenessEngine"],
+            dependencies: ["SolistraLivenessCore", "SolistraLivenessEngine", "SolistraLivenessNetwork"],
             path: "Sources/SolistraLivenessUI"
+        ),
+        .target(
+            name: "SolistraLivenessNetwork",
+            dependencies: ["SolistraLivenessCore"],
+            path: "Sources/SolistraLivenessNetwork"
         ),
         .testTarget(
             name: "SolistraLivenessSDKTests",
-            dependencies: ["SolistraLivenessCore", "SolistraLivenessEngine"],
+            dependencies: ["SolistraLivenessCore", "SolistraLivenessEngine", "SolistraLivenessNetwork"],
             path: "Tests/SolistraLivenessSDKTests"
         )
     ]

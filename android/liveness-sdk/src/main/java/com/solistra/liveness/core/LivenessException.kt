@@ -9,4 +9,12 @@ sealed class LivenessException(message: String, val errorCode: String) : Excepti
     class PassiveAntiSpoofFailed(val score: Float) : LivenessException("Passive anti-spoof verification failed (score: $score)", "SPOOF_DETECTED")
     class UserCancelled : LivenessException("Liveness verification cancelled by user", "USER_CANCELLED")
     class LowLightingCondition : LivenessException("Lighting condition too low for reliable verification", "LOW_LIGHT")
+
+    // MobFácil Auth and Transmission Errors
+    class MobfacilDelinquencyLicenseBlocked(msg: String = "Licença bloqueada por inadimplência. Entre em contato com a MobFácil.") :
+        LivenessException(msg, "LICENSE_BLOCKED")
+    class MobfacilAuthenticationFailed(msg: String, errorCode: String = "AUTH_FAILED") :
+        LivenessException(msg, errorCode)
+    class MobfacilUploadFailed(msg: String, val statusCode: Int? = null) :
+        LivenessException(msg, "UPLOAD_FAILED")
 }

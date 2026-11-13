@@ -29,6 +29,11 @@ import com.solistra.liveness.core.LivenessResult
 import com.solistra.liveness.core.LivenessState
 import com.solistra.liveness.databinding.ActivityLivenessBinding
 import com.solistra.liveness.engine.LivenessEngine
+import com.solistra.liveness.network.MobfacilCollectorService
+import com.solistra.liveness.network.MobfacilTokenManager
+import com.solistra.liveness.network.MobfacilUploadResult
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class LivenessActivity : AppCompatActivity(), LivenessCallback {
 
@@ -253,6 +258,69 @@ class LivenessActivity : AppCompatActivity(), LivenessCallback {
 
     override fun onSuccess(result: LivenessResult) {
         if (isFinishingSession) return
+
+        val authConfig = config.mobfacilAuthConfig
+        if (config.autoUploadToMobfacil && authConfig != null) {
+            isFinishingSession = true
+            binding.tvPrompt.text = "Transmitting to MobFácil..."
+            binding.overlayView.setGuideColor(Color.parseColor("#00E5FF"))
+
+            lifecycleScope.launch {
+                val tokenManager = MobfacilTokenManager.getInstance(authConfig, applicationContext)
+                val collectorService = MobfacilCollectorService(tokenManager, authConfig)
+                val uploadOutcome = collectorService.uploadLivenessData(result)
+
+                when (uploadOutcome) {
+                    is MobfacilUploadResult.Success -> {
+                        binding.tvPrompt.text = "Verification & Upload Complete"
+                        binding.overlayView.setGuideColor(Color.parseColor("#00E676"))
+                        triggerHapticFeedback(isSuccess = true)
+
+                        val finalResult = result.copy(uploadResult = uploadOutcome)
+                        LivenessSDKResultHolder.lastResult = finalResult
+                        LivenessSDKResultHolder.lastError = null
+                        val dataIntent = Intent().apply {
+                            putExtra(EXTRA_RESULT, finalResult)
+                        }
+                        setResult(RESULT_OK, dataIntent)
+                        binding.root.postDelayed({ finish() }, 800)
+                    }
+
+                    is MobfacilUploadResult.Failure -> {
+                        if (uploadOutcome.errorCode.contains("invalid_client", ignoreCase = true) ||
+                            uploadOutcome.errorCode == "INVALID_CLIENT_DELINQUENCY"
+                        ) {
+                            val delinquencyError = LivenessException.MobfacilDelinquencyLicenseBlocked(uploadOutcome.message)
+                            LivenessSDKResultHolder.lastError = delinquencyError
+                            LivenessSDKResultHolder.lastResult = null
+                            binding.tvPrompt.text = delinquencyError.message
+                            binding.overlayView.setGuideColor(Color.parseColor("#FF1744"))
+                            triggerHapticFeedback(isSuccess = false)
+                            val dataIntent = Intent().apply {
+                                putExtra(EXTRA_ERROR_MESSAGE, delinquencyError.message)
+                                putExtra(EXTRA_ERROR_CODE, delinquencyError.errorCode)
+                            }
+                            setResult(RESULT_CANCELED, dataIntent)
+                            binding.root.postDelayed({ finish() }, 2000)
+                        } else {
+                            val finalResult = result.copy(uploadResult = uploadOutcome)
+                            LivenessSDKResultHolder.lastResult = finalResult
+                            LivenessSDKResultHolder.lastError = null
+                            binding.tvPrompt.text = "Verification Complete"
+                            binding.overlayView.setGuideColor(Color.parseColor("#00E676"))
+                            triggerHapticFeedback(isSuccess = true)
+                            val dataIntent = Intent().apply {
+                                putExtra(EXTRA_RESULT, finalResult)
+                            }
+                            setResult(RESULT_OK, dataIntent)
+                            binding.root.postDelayed({ finish() }, 1000)
+                        }
+                    }
+                }
+            }
+            return
+        }
+
         isFinishingSession = true
         LivenessSDKResultHolder.lastResult = result
         LivenessSDKResultHolder.lastError = null

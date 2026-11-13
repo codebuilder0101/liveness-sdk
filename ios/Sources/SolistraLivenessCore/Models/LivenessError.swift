@@ -9,6 +9,9 @@ public enum LivenessError: LocalizedError, Equatable {
     case passiveAntiSpoofFailed(score: Float)
     case userCancelled
     case screenCaptureDetected
+    case mobfacilLicenseBlocked(String)
+    case mobfacilInvalidCredentials(String)
+    case mobfacilUploadFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +23,9 @@ public enum LivenessError: LocalizedError, Equatable {
         case .passiveAntiSpoofFailed(let score): return "Anti-spoof check failed (score: \(score))"
         case .userCancelled: return "Verification cancelled by user"
         case .screenCaptureDetected: return "Screen recording/mirroring is not permitted"
+        case .mobfacilLicenseBlocked(let msg): return "Licença bloqueada por inadimplência: \(msg)"
+        case .mobfacilInvalidCredentials(let msg): return "Credenciais inválidas: \(msg)"
+        case .mobfacilUploadFailed(let msg): return "Falha no envio de dados: \(msg)"
         }
     }
 }
